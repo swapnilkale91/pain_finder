@@ -14,7 +14,7 @@ concurrency:
 
 env:
   REVIEW_APPS: "notion,quickbooks"   # edit: comma-separated apps to track reviews for
-  BUDGET_USD: "3"                    # per-run extraction spend cap
+  BUDGET_USD: "4"                    # per-run extraction spend cap
 
 jobs:
   run:
