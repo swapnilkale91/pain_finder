@@ -82,6 +82,25 @@ Or schedule the one-shot form with cron (survives reboots, unlike `--loop`):
 
 The HN thread is monthly and review feeds move slowly, so daily is plenty.
 
+### Running it in the cloud (no server needed)
+
+The repo ships a GitHub Actions workflow (`.github/workflows/pipeline.yml`) that runs the
+full pipeline **daily** and commits the updated SQLite DB back to the repo. To enable it:
+
+1. **Add your API key as a secret:** repo → Settings → Secrets and variables → Actions →
+   New repository secret → name `ANTHROPIC_API_KEY`.
+2. **Edit the app list / budget** at the top of the workflow file (`REVIEW_APPS`, `BUDGET_USD`).
+3. Trigger the first run manually from the **Actions** tab (workflow_dispatch) to backfill.
+   After that it fires on the daily cron. Note: scheduled workflows only run on the repo's
+   **default branch**, so merge this branch first if it isn't the default.
+
+For the dashboard, deploy to **Streamlit Community Cloud** (free): share.streamlit.io →
+New app → point it at this repo and `dashboard.py`. It reads `data/painfinder.db` from the
+repo, and redeploys automatically whenever the Actions run pushes fresh data.
+
+Prefer your own server instead? The cron line above is all you need — the app is a plain
+Python process with a SQLite file, no other infrastructure.
+
 ## Costs
 
 **Ingestion is free** — the HN Algolia API and Apple's review feeds are public and the
