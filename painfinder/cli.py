@@ -117,29 +117,46 @@ def cmd_run(args):
     free and idempotent; only NEW items reach the (paid) extract stage.
     """
     apps = [a.strip() for a in (args.apps or "").split(",") if a.strip()]
+    failed_stages = []
     while True:
         conn = dbm.connect(args.db)
         started = time.strftime("%Y-%m-%d %H:%M:%S")
         print(f"=== pipeline run @ {started} ===")
+        # Each stage is isolated: a failure is reported but never discards the
+        # work of earlier stages (which is already committed to the DB).
         try:
             _ingest_hn(conn, args.max)
         except Exception as e:
+            failed_stages.append("ingest-hn")
             print(f"HN ingest failed: {e}", file=sys.stderr)
         for app in apps:
             try:
                 _ingest_reviews(conn, app=app, pages=args.pages, max_rating=args.max_rating)
             except Exception as e:
+                failed_stages.append(f"ingest-reviews:{app}")
                 print(f"Review ingest for {app!r} failed: {e}", file=sys.stderr)
-        _extract_all(conn, heuristic=args.heuristic, budget_usd=args.budget_usd)
-        _score_all(conn, heuristic=args.heuristic)
+        try:
+            _extract_all(conn, heuristic=args.heuristic, budget_usd=args.budget_usd)
+        except Exception as e:
+            failed_stages.append("extract")
+            print(f"Extract failed: {e}", file=sys.stderr)
+        try:
+            _score_all(conn, heuristic=args.heuristic)
+        except Exception as e:
+            failed_stages.append("score")
+            print(f"Score failed: {e}", file=sys.stderr)
         s = usage_mod.summary(conn)["total"]
         print(f"Cumulative LLM spend: ${s['cost_usd']:.2f} "
               f"({s['input_tokens']:,} in / {s['output_tokens']:,} out tokens)")
         conn.close()
         if not args.loop:
             break
+        failed_stages = []
         print(f"Sleeping {args.interval_hours}h...\n")
         time.sleep(args.interval_hours * 3600)
+    if failed_stages:
+        print(f"Run finished with failures: {', '.join(failed_stages)}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_usage(args):

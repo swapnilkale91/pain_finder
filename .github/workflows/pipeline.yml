@@ -35,6 +35,9 @@ jobs:
         run: python -m painfinder.cli run --apps "$REVIEW_APPS" --budget-usd "$BUDGET_USD"
 
       - name: Commit updated database
+        # always() — extraction spend must be preserved even if a later
+        # stage failed, otherwise a crash wastes the API budget already spent
+        if: always()
         run: |
           git config user.name "pain-finder-bot"
           git config user.email "actions@users.noreply.github.com"

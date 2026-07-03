@@ -30,7 +30,36 @@ problem is the same even if the wording differs. Guidelines:
 - 3 to 15 themes is typical. Each pain belongs to at most one theme."""
 
 
+# Hand-written schema (structured outputs require additionalProperties: false)
+CLUSTER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "themes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "pain_indices": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["name", "description", "pain_indices"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["themes"],
+    "additionalProperties": False,
+}
+
+
 def cluster_with_claude(pains: list[dict], usage_sink=None) -> list[dict]:
+    """One clustering call over all pains.
+
+    Streams with a large max_tokens: adaptive thinking shares the output
+    budget, and on many hundreds of pains it can consume 10k+ tokens before
+    the JSON starts — a small cap truncates the JSON mid-string.
+    """
     import anthropic
     client = anthropic.Anthropic()
 
@@ -38,20 +67,28 @@ def cluster_with_claude(pains: list[dict], usage_sink=None) -> list[dict]:
         f"{i}. [{p['source']}] ({p['category']}, severity {p['severity']}) {p['description']}"
         for i, p in enumerate(pains)
     ]
-    response = client.messages.parse(
+    with client.messages.stream(
         model=MODEL,
-        max_tokens=16000,
+        max_tokens=64000,
         thinking={"type": "adaptive"},
         system=CLUSTER_SYSTEM,
         messages=[{"role": "user", "content": "Pain points:\n" + "\n".join(lines)}],
-        output_format=ClusterResult,
-    )
+        output_config={"format": {"type": "json_schema", "schema": CLUSTER_SCHEMA}},
+    ) as stream:
+        response = stream.get_final_message()
+
+    # Record spend before parsing — a truncated/failed parse is still billed.
     if usage_sink:
         from .usage import from_response_usage
         usage_sink("cluster", MODEL, from_response_usage(response.usage))
-    result = response.parsed_output
-    if result is None:
-        return []
+
+    if response.stop_reason == "max_tokens":
+        raise RuntimeError(
+            "Clustering output hit max_tokens and was truncated; "
+            "raise max_tokens in score.py or cluster fewer pains at once."
+        )
+    text = next(b.text for b in response.content if b.type == "text")
+    result = ClusterResult.model_validate_json(text)
     themes = []
     for t in result.themes:
         indices = [i for i in t.pain_indices if 0 <= i < len(pains)]
