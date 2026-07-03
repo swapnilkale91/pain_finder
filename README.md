@@ -61,6 +61,44 @@ streamlit run dashboard.py
 `stats` shows pipeline counts at any point. Re-running ingest is idempotent (dedupe on
 source + external ID); `extract` only processes items it hasn't seen.
 
+## Automatic ingestion
+
+`run` does the whole pipeline in one command — ingest everything, extract only the new
+items, re-score:
+
+```bash
+# One shot, with a $5 extraction spend cap (the default)
+python -m painfinder.cli run --apps "notion,quickbooks" --budget-usd 5
+
+# Keep it running: re-check sources every 12 hours
+python -m painfinder.cli run --apps "notion,quickbooks" --loop --interval-hours 12
+```
+
+Or schedule the one-shot form with cron (survives reboots, unlike `--loop`):
+
+```cron
+0 8 * * * cd /path/to/pain_finder && .venv/bin/python -m painfinder.cli run --apps "notion,quickbooks" >> pipeline.log 2>&1
+```
+
+The HN thread is monthly and review feeds move slowly, so daily is plenty.
+
+## Costs
+
+**Ingestion is free** — the HN Algolia API and Apple's review feeds are public and the
+ingest stage makes no LLM calls. The paid stages are **extract** and **score** (Claude API):
+
+- Full HN thread (~500 posts): roughly **$4–6**
+- Critical reviews for one app (~100–250 reviews): roughly **$0.50–1**
+- Clustering (one call per `score` run): cents
+
+Because ingest is deduplicated, follow-up runs only pay for *new* items — a daily `run`
+after the initial backfill typically costs cents. Guardrails and visibility:
+
+- `--budget-usd N` on `extract`/`run` hard-stops extraction at the cap (resume by re-running)
+- every Claude call's tokens and estimated cost land in the `llm_usage` table
+- `python -m painfinder.cli usage` prints totals per stage; the dashboard shows
+  cumulative tokens and spend in the header
+
 ## Scoring
 
 Each theme's score = `log2(1 + pain_count) × avg_severity × (1 + 0.25 × extra_source_types)`.

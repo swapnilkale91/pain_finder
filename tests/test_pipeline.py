@@ -7,6 +7,7 @@ import pytest
 from painfinder import db as dbm
 from painfinder import extract as extract_mod
 from painfinder import score as score_mod
+from painfinder import usage as usage_mod
 from painfinder.ingest.app_reviews import parse_review_entries
 from painfinder.ingest.hn_jobs import parse_comment_hits, strip_html
 
@@ -144,6 +145,23 @@ def test_full_pipeline_heuristic(conn):
     assert themes == sorted(themes, key=lambda t: -t["score"])
     dbm.replace_themes(conn, themes)
     assert dbm.stats(conn)["themes"] == len(themes)
+
+
+def test_usage_recording_and_summary(conn):
+    tokens = {"input_tokens": 800, "output_tokens": 200,
+              "cache_write_tokens": 600, "cache_read_tokens": 0}
+    cost = usage_mod.record(conn, "extract", "claude-opus-4-8", tokens)
+    # 800*$5 + 200*$25 + 600*$6.25 per MTok
+    assert cost == pytest.approx((800 * 5 + 200 * 25 + 600 * 6.25) / 1e6)
+
+    usage_mod.record(conn, "cluster", "claude-opus-4-8",
+                     {"input_tokens": 1000, "output_tokens": 500})
+    s = usage_mod.summary(conn)
+    assert s["total"]["calls"] == 2
+    assert s["total"]["cost_usd"] == pytest.approx(cost + (1000 * 5 + 500 * 25) / 1e6)
+    assert {st["stage"] for st in s["stages"]} == {"extract", "cluster"}
+    # input total includes cache tokens
+    assert s["total"]["input_tokens"] == 800 + 600 + 1000
 
 
 def test_score_rewards_corroboration_and_severity():

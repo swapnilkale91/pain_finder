@@ -50,6 +50,18 @@ CREATE TABLE IF NOT EXISTS theme_pains (
     pain_id INTEGER NOT NULL REFERENCES pains(id),
     PRIMARY KEY (theme_id, pain_id)
 );
+
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id INTEGER PRIMARY KEY,
+    stage TEXT NOT NULL,               -- 'extract' | 'cluster'
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 

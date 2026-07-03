@@ -30,7 +30,7 @@ problem is the same even if the wording differs. Guidelines:
 - 3 to 15 themes is typical. Each pain belongs to at most one theme."""
 
 
-def cluster_with_claude(pains: list[dict]) -> list[dict]:
+def cluster_with_claude(pains: list[dict], usage_sink=None) -> list[dict]:
     import anthropic
     client = anthropic.Anthropic()
 
@@ -46,6 +46,9 @@ def cluster_with_claude(pains: list[dict]) -> list[dict]:
         messages=[{"role": "user", "content": "Pain points:\n" + "\n".join(lines)}],
         output_format=ClusterResult,
     )
+    if usage_sink:
+        from .usage import from_response_usage
+        usage_sink("cluster", MODEL, from_response_usage(response.usage))
     result = response.parsed_output
     if result is None:
         return []
@@ -88,12 +91,13 @@ def score_theme(member_pains: list[dict]) -> dict:
     }
 
 
-def build_themes(pains: list[dict], heuristic: bool = False) -> list[dict]:
+def build_themes(pains: list[dict], heuristic: bool = False, usage_sink=None) -> list[dict]:
     """pains must each carry: id, source, category, severity, description.
     Returns theme dicts ready for db.replace_themes()."""
     if not pains:
         return []
-    clusters = cluster_heuristic(pains) if heuristic else cluster_with_claude(pains)
+    clusters = (cluster_heuristic(pains) if heuristic
+                else cluster_with_claude(pains, usage_sink=usage_sink))
     themes = []
     for c in clusters:
         members = [pains[i] for i in c["indices"]]

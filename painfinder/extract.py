@@ -57,8 +57,13 @@ def _client():
     return anthropic.Anthropic()
 
 
-def extract_with_claude(source: str, title: str | None, text: str) -> list[dict]:
-    """Extract pains from one item using Claude structured outputs."""
+def extract_with_claude(source: str, title: str | None, text: str,
+                        usage_sink=None) -> list[dict]:
+    """Extract pains from one item using Claude structured outputs.
+
+    usage_sink, if given, is called as usage_sink(stage, model, token_dict)
+    after the API call so the caller can account for tokens/cost.
+    """
     client = _client()
     kind = "JOB POST" if source == "hn_jobs" else "APP REVIEW"
     user_content = f"{kind}"
@@ -77,6 +82,9 @@ def extract_with_claude(source: str, title: str | None, text: str) -> list[dict]
         messages=[{"role": "user", "content": user_content}],
         output_format=ExtractionResult,
     )
+    if usage_sink:
+        from .usage import from_response_usage
+        usage_sink("extract", MODEL, from_response_usage(response.usage))
     result = response.parsed_output
     if result is None:
         return []
@@ -125,7 +133,8 @@ def extract_heuristic(source: str, title: str | None, text: str) -> list[dict]:
     return pains
 
 
-def extract(source: str, title: str | None, text: str, heuristic: bool = False) -> list[dict]:
+def extract(source: str, title: str | None, text: str, heuristic: bool = False,
+            usage_sink=None) -> list[dict]:
     if heuristic:
         return extract_heuristic(source, title, text)
-    return extract_with_claude(source, title, text)
+    return extract_with_claude(source, title, text, usage_sink=usage_sink)
