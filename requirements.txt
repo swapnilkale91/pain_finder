@@ -1,0 +1,4 @@
+anthropic>=0.90.0
+pydantic>=2.7
+requests>=2.31
+streamlit>=1.39

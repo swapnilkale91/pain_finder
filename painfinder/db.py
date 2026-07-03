@@ -1,0 +1,147 @@
+"""SQLite storage for raw items, extracted pains, and scored themes."""
+
+import json
+import os
+import sqlite3
+from datetime import datetime, timezone
+
+DEFAULT_DB_PATH = os.environ.get("PAINFINDER_DB", "data/painfinder.db")
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS raw_items (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL,              -- 'hn_jobs' | 'app_reviews'
+    external_id TEXT NOT NULL,         -- comment id / review id
+    title TEXT,                        -- app name or job post first line
+    author TEXT,
+    rating INTEGER,                    -- reviews only (1-5)
+    text TEXT NOT NULL,
+    url TEXT,
+    posted_at TEXT,
+    fetched_at TEXT NOT NULL,
+    extracted INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (source, external_id)
+);
+
+CREATE TABLE IF NOT EXISTS pains (
+    id INTEGER PRIMARY KEY,
+    raw_item_id INTEGER NOT NULL REFERENCES raw_items(id),
+    description TEXT NOT NULL,
+    category TEXT,
+    severity INTEGER,                  -- 1 (mild annoyance) .. 5 (budgeted, hair-on-fire)
+    tools_mentioned TEXT,              -- JSON array
+    quote TEXT,                        -- supporting excerpt from the source text
+    extracted_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS themes (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    pain_count INTEGER NOT NULL DEFAULT 0,
+    source_count INTEGER NOT NULL DEFAULT 0,
+    avg_severity REAL,
+    score REAL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS theme_pains (
+    theme_id INTEGER NOT NULL REFERENCES themes(id),
+    pain_id INTEGER NOT NULL REFERENCES pains(id),
+    PRIMARY KEY (theme_id, pain_id)
+);
+"""
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def connect(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA)
+    return conn
+
+
+def insert_raw_items(conn: sqlite3.Connection, items: list[dict]) -> int:
+    """Insert items, skipping duplicates. Returns number of new rows."""
+    inserted = 0
+    for it in items:
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO raw_items
+               (source, external_id, title, author, rating, text, url, posted_at, fetched_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                it["source"], it["external_id"], it.get("title"), it.get("author"),
+                it.get("rating"), it["text"], it.get("url"), it.get("posted_at"),
+                now_iso(),
+            ),
+        )
+        inserted += cur.rowcount
+    conn.commit()
+    return inserted
+
+
+def unextracted_items(conn: sqlite3.Connection, limit: int | None = None) -> list[sqlite3.Row]:
+    q = "SELECT * FROM raw_items WHERE extracted = 0 ORDER BY id"
+    if limit:
+        q += f" LIMIT {int(limit)}"
+    return conn.execute(q).fetchall()
+
+
+def save_pains(conn: sqlite3.Connection, raw_item_id: int, pains: list[dict]) -> None:
+    for p in pains:
+        conn.execute(
+            """INSERT INTO pains (raw_item_id, description, category, severity,
+                                  tools_mentioned, quote, extracted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                raw_item_id, p["description"], p.get("category"), p.get("severity"),
+                json.dumps(p.get("tools_mentioned", [])), p.get("quote"), now_iso(),
+            ),
+        )
+    conn.execute("UPDATE raw_items SET extracted = 1 WHERE id = ?", (raw_item_id,))
+    conn.commit()
+
+
+def all_pains(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """SELECT pains.*, raw_items.source, raw_items.title AS item_title,
+                  raw_items.url, raw_items.posted_at
+           FROM pains JOIN raw_items ON raw_items.id = pains.raw_item_id
+           ORDER BY pains.id"""
+    ).fetchall()
+
+
+def replace_themes(conn: sqlite3.Connection, themes: list[dict]) -> None:
+    """themes: [{name, description, pain_ids, avg_severity, source_count, score}]"""
+    conn.execute("DELETE FROM theme_pains")
+    conn.execute("DELETE FROM themes")
+    for t in themes:
+        cur = conn.execute(
+            """INSERT INTO themes (name, description, pain_count, source_count,
+                                   avg_severity, score, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                t["name"], t.get("description"), len(t["pain_ids"]),
+                t["source_count"], t["avg_severity"], t["score"], now_iso(),
+            ),
+        )
+        theme_id = cur.lastrowid
+        conn.executemany(
+            "INSERT INTO theme_pains (theme_id, pain_id) VALUES (?, ?)",
+            [(theme_id, pid) for pid in t["pain_ids"]],
+        )
+    conn.commit()
+
+
+def stats(conn: sqlite3.Connection) -> dict:
+    row = lambda q: conn.execute(q).fetchone()[0]  # noqa: E731
+    return {
+        "raw_items": row("SELECT COUNT(*) FROM raw_items"),
+        "unextracted": row("SELECT COUNT(*) FROM raw_items WHERE extracted = 0"),
+        "pains": row("SELECT COUNT(*) FROM pains"),
+        "themes": row("SELECT COUNT(*) FROM themes"),
+    }
