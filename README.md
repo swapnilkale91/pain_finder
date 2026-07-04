@@ -44,9 +44,13 @@ public. Without an Anthropic key you can still run the whole pipeline with `--he
 # 1. Ingest the latest HN Who-is-Hiring thread (~monthly, hundreds of posts)
 python -m painfinder.cli ingest-hn
 
-# 2. Ingest critical reviews for incumbent apps in the space you're exploring
+# 2a. Ingest critical reviews for specific incumbent apps
 python -m painfinder.cli ingest-reviews --app "notion"
-python -m painfinder.cli ingest-reviews --app "quickbooks" --max-rating 3
+
+# 2b. Or sweep an entire domain: top 10 App Store matches, tagged with the domain
+python -m painfinder.cli ingest-domain "crypto exchange"
+python -m painfinder.cli ingest-domain "bookkeeping" --top 15
+python -m painfinder.cli ingest-domain "crypto on/off-ramp" --query "buy crypto"
 
 # 3. Extract structured pain points (uses Claude; add --limit 50 to control spend)
 python -m painfinder.cli extract

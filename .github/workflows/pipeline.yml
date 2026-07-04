@@ -13,8 +13,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REVIEW_APPS: "notion,quickbooks"   # edit: comma-separated apps to track reviews for
-  BUDGET_USD: "4"                    # per-run extraction spend cap
+  REVIEW_APPS: "notion,quickbooks"                 # specific apps to track
+  DOMAINS: "crypto exchange,bookkeeping"           # whole domains to sweep (top 10 apps each)
+  BUDGET_USD: "4"                                  # per-run extraction spend cap
 
 jobs:
   run:
@@ -32,7 +33,7 @@ jobs:
       - name: Run pipeline (ingest -> extract -> score)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python -m painfinder.cli run --apps "$REVIEW_APPS" --budget-usd "$BUDGET_USD" --batch
+        run: python -m painfinder.cli run --apps "$REVIEW_APPS" --domains "$DOMAINS" --budget-usd "$BUDGET_USD" --batch
 
       - name: Commit updated database
         # always() — extraction spend must be preserved even if a later

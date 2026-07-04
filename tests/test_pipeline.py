@@ -125,6 +125,8 @@ def conn(tmp_path):
 def test_full_pipeline_heuristic(conn):
     job_items = parse_comment_hits(ALGOLIA_COMMENT_HITS, "thread")
     review_items = parse_review_entries(ITUNES_REVIEW_ENTRIES, "NotesApp")
+    for i in review_items:
+        i["domain"] = "note-taking"
 
     assert dbm.insert_raw_items(conn, job_items + review_items) == 3
     # idempotent re-ingest
@@ -140,11 +142,19 @@ def test_full_pipeline_heuristic(conn):
     assert stats["pains"] > 0
 
     pains = [dict(r) for r in dbm.all_pains(conn)]
+    # domain flows from ingest through to the extracted pains
+    assert any(p["domain"] == "note-taking" for p in pains)
+
     themes = score_mod.build_themes(pains, heuristic=True)
     assert themes
     assert themes == sorted(themes, key=lambda t: -t["score"])
+    # heuristic clustering rolls up the majority member domain
+    review_theme = next(t for t in themes if t["name"] == "Reliability")
+    assert review_theme["domain"] == "note-taking"
     dbm.replace_themes(conn, themes)
     assert dbm.stats(conn)["themes"] == len(themes)
+    stored = conn.execute("SELECT domain FROM themes WHERE name = 'Reliability'").fetchone()
+    assert stored["domain"] == "note-taking"
 
 
 def test_batch_discount_and_haiku_prices(conn):

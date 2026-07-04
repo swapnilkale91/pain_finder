@@ -17,6 +17,7 @@ MODEL = os.environ.get("PAINFINDER_CLUSTER_MODEL", "claude-opus-4-8")
 class Theme(BaseModel):
     name: str = Field(description="Short name for the pain theme, 3-8 words")
     description: str = Field(description="One or two sentences: what the pain is and who has it")
+    domain: str = Field(description="Short market/domain label, e.g. 'crypto payments', 'accounting software'; 'cross-domain' if it spans industries")
     pain_indices: list[int] = Field(description="0-based indices into the input list of pains belonging to this theme")
 
 
@@ -29,7 +30,14 @@ pain points mined from job boards and app reviews. Group them into themes where 
 problem is the same even if the wording differs. Guidelines:
 - A theme should be specific enough to imagine one product solving it.
 - Don't force everything into a theme: leave truly one-off pains out.
-- 3 to 15 themes is typical. Each pain belongs to at most one theme."""
+- Each pain belongs to at most one theme.
+- Assign every theme a short domain label: the market or industry where the pain lives
+  (e.g. 'crypto payments', 'accounting software', 'field service', 'developer tools').
+  Some pains carry a [domain: ...] tag from collection — trust it but refine when the
+  content is more specific. Use 'cross-domain' only when the pain genuinely spans
+  industries. Prefer splitting a theme by domain over one vague cross-domain theme:
+  'reconciliation pain in crypto on/off-ramps' and 'reconciliation pain in e-commerce
+  bookkeeping' are more actionable than 'reconciliation pain'."""
 
 
 # Hand-written schema (structured outputs require additionalProperties: false)
@@ -43,9 +51,10 @@ CLUSTER_SCHEMA = {
                 "properties": {
                     "name": {"type": "string"},
                     "description": {"type": "string"},
+                    "domain": {"type": "string"},
                     "pain_indices": {"type": "array", "items": {"type": "integer"}},
                 },
-                "required": ["name", "description", "pain_indices"],
+                "required": ["name", "description", "domain", "pain_indices"],
                 "additionalProperties": False,
             },
         }
@@ -65,10 +74,11 @@ def cluster_with_claude(pains: list[dict], usage_sink=None) -> list[dict]:
     import anthropic
     client = anthropic.Anthropic()
 
-    lines = [
-        f"{i}. [{p['source']}] ({p['category']}, severity {p['severity']}) {p['description']}"
-        for i, p in enumerate(pains)
-    ]
+    lines = []
+    for i, p in enumerate(pains):
+        tag = f" [domain: {p['domain']}]" if p.get("domain") else ""
+        lines.append(f"{i}. [{p['source']}]{tag} ({p['category']}, severity {p['severity']}) "
+                     f"{p['description']}")
     with client.messages.stream(
         model=MODEL,
         max_tokens=64000,
@@ -95,8 +105,19 @@ def cluster_with_claude(pains: list[dict], usage_sink=None) -> list[dict]:
     for t in result.themes:
         indices = [i for i in t.pain_indices if 0 <= i < len(pains)]
         if indices:
-            themes.append({"name": t.name, "description": t.description, "indices": indices})
+            themes.append({"name": t.name, "description": t.description,
+                           "domain": t.domain, "indices": indices})
     return themes
+
+
+def _majority_domain(members: list[dict]) -> str:
+    counts: dict[str, int] = defaultdict(int)
+    for p in members:
+        if p.get("domain"):
+            counts[p["domain"]] += 1
+    if not counts:
+        return "cross-domain"
+    return max(counts.items(), key=lambda kv: kv[1])[0]
 
 
 def cluster_heuristic(pains: list[dict]) -> list[dict]:
@@ -108,6 +129,7 @@ def cluster_heuristic(pains: list[dict]) -> list[dict]:
         {
             "name": cat.replace("_", " ").capitalize(),
             "description": f"Pains categorized as {cat} across sources.",
+            "domain": _majority_domain([pains[i] for i in idxs]),
             "indices": idxs,
         }
         for cat, idxs in sorted(groups.items(), key=lambda kv: -len(kv[1]))
@@ -143,6 +165,7 @@ def build_themes(pains: list[dict], heuristic: bool = False, usage_sink=None) ->
         t = {
             "name": c["name"],
             "description": c["description"],
+            "domain": c.get("domain"),
             "pain_ids": [pains[i]["id"] for i in c["indices"]],
             **score_theme(members),
         }

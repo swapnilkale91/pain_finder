@@ -27,13 +27,26 @@ def _ingest_hn(conn, max_comments: int) -> None:
     print(f"{thread_title}: fetched {len(items)} job posts, {new} new")
 
 
-def _ingest_reviews(conn, app=None, app_id=None, country="us", pages=5, max_rating=3) -> None:
+def _ingest_reviews(conn, app=None, app_id=None, country="us", pages=5, max_rating=3,
+                    domain=None) -> None:
     from .ingest import app_reviews
     app_name, items = app_reviews.ingest(
         app_term=app, app_id=app_id, country=country, pages=pages, max_rating=max_rating,
+        domain=domain,
     )
     new = dbm.insert_raw_items(conn, items)
     print(f"{app_name}: fetched {len(items)} reviews, {new} new")
+
+
+def _ingest_domain(conn, domain, query=None, country="us", top=10, pages=3,
+                   max_rating=3) -> None:
+    from .ingest import app_reviews
+    names, items = app_reviews.ingest_domain(
+        domain, query=query, country=country, top=top, pages=pages, max_rating=max_rating,
+    )
+    new = dbm.insert_raw_items(conn, items)
+    print(f"domain {domain!r}: {len(names)} apps ({', '.join(names[:5])}"
+          f"{'...' if len(names) > 5 else ''}), {len(items)} reviews, {new} new")
 
 
 def _extract_all(conn, limit=None, heuristic=False, budget_usd=None, batch=False) -> None:
@@ -122,7 +135,14 @@ def cmd_ingest_hn(args):
 
 def cmd_ingest_reviews(args):
     _ingest_reviews(dbm.connect(args.db), app=args.app, app_id=args.app_id,
-                    country=args.country, pages=args.pages, max_rating=args.max_rating)
+                    country=args.country, pages=args.pages, max_rating=args.max_rating,
+                    domain=args.domain)
+
+
+def cmd_ingest_domain(args):
+    _ingest_domain(dbm.connect(args.db), args.domain, query=args.query,
+                   country=args.country, top=args.top, pages=args.pages,
+                   max_rating=args.max_rating)
 
 
 def cmd_extract(args):
@@ -141,6 +161,7 @@ def cmd_run(args):
     free and idempotent; only NEW items reach the (paid) extract stage.
     """
     apps = [a.strip() for a in (args.apps or "").split(",") if a.strip()]
+    domains = [d.strip() for d in (args.domains or "").split(",") if d.strip()]
     failed_stages = []
     while True:
         conn = dbm.connect(args.db)
@@ -159,6 +180,13 @@ def cmd_run(args):
             except Exception as e:
                 failed_stages.append(f"ingest-reviews:{app}")
                 print(f"Review ingest for {app!r} failed: {e}", file=sys.stderr)
+        for domain in domains:
+            try:
+                _ingest_domain(conn, domain, top=args.top, pages=args.pages,
+                               max_rating=args.max_rating)
+            except Exception as e:
+                failed_stages.append(f"ingest-domain:{domain}")
+                print(f"Domain ingest for {domain!r} failed: {e}", file=sys.stderr)
         try:
             _extract_all(conn, heuristic=args.heuristic, budget_usd=args.budget_usd,
                          batch=args.batch)
@@ -217,7 +245,18 @@ def main(argv=None):
     p.add_argument("--pages", type=int, default=5, help="Feed pages (~50 reviews each, max 10)")
     p.add_argument("--max-rating", type=int, default=3,
                    help="Keep only reviews at or below this star rating (default 3; 5 keeps all)")
+    p.add_argument("--domain", help="Optional domain label to tag these reviews with")
     p.set_defaults(func=cmd_ingest_reviews)
+
+    p = sub.add_parser("ingest-domain",
+                       help="Sweep a whole domain: reviews for the top N apps matching it (free)")
+    p.add_argument("domain", help="Domain label, e.g. 'crypto exchange' or 'bookkeeping'")
+    p.add_argument("--query", help="Custom App Store search query (defaults to the domain)")
+    p.add_argument("--top", type=int, default=10, help="How many apps to ingest (default 10)")
+    p.add_argument("--country", default="us")
+    p.add_argument("--pages", type=int, default=3, help="Review pages per app (~50 each)")
+    p.add_argument("--max-rating", type=int, default=3)
+    p.set_defaults(func=cmd_ingest_domain)
 
     p = sub.add_parser("extract", help="Extract pain points from ingested items (paid: Claude)")
     p.add_argument("--limit", type=int, help="Max items to process this run")
@@ -236,6 +275,10 @@ def main(argv=None):
 
     p = sub.add_parser("run", help="Full pipeline: ingest -> extract -> score")
     p.add_argument("--apps", help="Comma-separated app names for review ingestion")
+    p.add_argument("--domains",
+                   help="Comma-separated domains to sweep (top N apps each), "
+                        "e.g. 'crypto exchange,bookkeeping'")
+    p.add_argument("--top", type=int, default=10, help="Apps per domain sweep")
     p.add_argument("--max", type=int, default=500, help="Max HN job posts")
     p.add_argument("--pages", type=int, default=5)
     p.add_argument("--max-rating", type=int, default=3)

@@ -43,9 +43,14 @@ if stats["unextracted"]:
 
 # --- Sidebar: filters + spend detail -------------------------------------------
 
+domain_options = [r[0] for r in conn.execute(
+    "SELECT DISTINCT domain FROM themes WHERE domain IS NOT NULL ORDER BY domain")]
+
 with st.sidebar:
     st.header("Filters")
     query = st.text_input("Search themes", placeholder="e.g. billing, sync, spreadsheet")
+    selected_domains = st.multiselect("Domains", domain_options,
+                                      help="Market/domain each theme was assigned at clustering")
     min_severity = st.slider("Min. avg severity", 1.0, 5.0, 1.0, 0.5)
     only_corroborated = st.toggle(
         "Corroborated only",
@@ -87,6 +92,8 @@ for rank, t in enumerate(themes, 1):
         continue
     if only_corroborated and t["source_count"] < 2:
         continue
+    if selected_domains and t["domain"] not in selected_domains:
+        continue
     shown += 1
 
     with st.container(border=True):
@@ -99,6 +106,8 @@ for rank, t in enumerate(themes, 1):
             st.metric("Score", f"{t['score']:.1f}")
 
         facts = f"**{t['pain_count']}** pains · avg severity **{t['avg_severity']}**"
+        if t["domain"]:
+            facts = f"🏷️ `{t['domain']}` · " + facts
         if t["source_count"] > 1:
             facts += " · 🟢 **corroborated** (job posts *and* reviews)"
         else:

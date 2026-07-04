@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS raw_items (
     posted_at TEXT,
     fetched_at TEXT NOT NULL,
     extracted INTEGER NOT NULL DEFAULT 0,
+    domain TEXT,                       -- market/domain this item was collected for
     UNIQUE (source, external_id)
 );
 
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS themes (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
+    domain TEXT,                       -- market/domain label assigned at clustering
     pain_count INTEGER NOT NULL DEFAULT 0,
     source_count INTEGER NOT NULL DEFAULT 0,
     avg_severity REAL,
@@ -69,11 +71,21 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Additive migrations for databases created before a column existed."""
+    for table, col, decl in [("raw_items", "domain", "TEXT"), ("themes", "domain", "TEXT")]:
+        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+        if col not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+    conn.commit()
+
+
 def connect(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 
@@ -83,12 +95,13 @@ def insert_raw_items(conn: sqlite3.Connection, items: list[dict]) -> int:
     for it in items:
         cur = conn.execute(
             """INSERT OR IGNORE INTO raw_items
-               (source, external_id, title, author, rating, text, url, posted_at, fetched_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (source, external_id, title, author, rating, text, url, posted_at,
+                fetched_at, domain)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 it["source"], it["external_id"], it.get("title"), it.get("author"),
                 it.get("rating"), it["text"], it.get("url"), it.get("posted_at"),
-                now_iso(),
+                now_iso(), it.get("domain"),
             ),
         )
         inserted += cur.rowcount
@@ -121,7 +134,7 @@ def save_pains(conn: sqlite3.Connection, raw_item_id: int, pains: list[dict]) ->
 def all_pains(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         """SELECT pains.*, raw_items.source, raw_items.title AS item_title,
-                  raw_items.url, raw_items.posted_at
+                  raw_items.url, raw_items.posted_at, raw_items.domain
            FROM pains JOIN raw_items ON raw_items.id = pains.raw_item_id
            ORDER BY pains.id"""
     ).fetchall()
@@ -133,11 +146,11 @@ def replace_themes(conn: sqlite3.Connection, themes: list[dict]) -> None:
     conn.execute("DELETE FROM themes")
     for t in themes:
         cur = conn.execute(
-            """INSERT INTO themes (name, description, pain_count, source_count,
+            """INSERT INTO themes (name, description, domain, pain_count, source_count,
                                    avg_severity, score, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                t["name"], t.get("description"), len(t["pain_ids"]),
+                t["name"], t.get("description"), t.get("domain"), len(t["pain_ids"]),
                 t["source_count"], t["avg_severity"], t["score"], now_iso(),
             ),
         )
