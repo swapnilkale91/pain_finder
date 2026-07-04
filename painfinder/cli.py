@@ -297,6 +297,46 @@ def cmd_run(args):
         sys.exit(1)
 
 
+def cmd_brief(args):
+    from . import brief as brief_mod
+    conn = dbm.connect(args.db)
+
+    if args.rank is not None:
+        row = conn.execute(
+            "SELECT * FROM themes ORDER BY score DESC LIMIT 1 OFFSET ?",
+            (args.rank - 1,)).fetchone()
+        if row is None:
+            sys.exit(f"No theme at rank {args.rank}.")
+    else:
+        matches = conn.execute(
+            "SELECT * FROM themes WHERE name LIKE ? ORDER BY score DESC",
+            (f"%{args.theme}%",)).fetchall()
+        if not matches:
+            sys.exit(f"No theme matching {args.theme!r}.")
+        if len(matches) > 1:
+            print(f"{len(matches)} themes match — using the highest scored:")
+            for m in matches[:5]:
+                print(f"  {m['score']:>6.1f}  {m['name']}")
+        row = matches[0]
+
+    spent = 0.0
+
+    def sink(stage, model, tokens, batch=False):
+        nonlocal spent
+        spent += usage_mod.record(conn, stage, model, tokens, batch=batch)
+
+    print(f"Generating brief for: {row['name']} (score {row['score']})...")
+    md = brief_mod.generate_brief(conn, row, usage_sink=sink)
+    dbm.save_brief(conn, row["name"], row["domain"], row["score"], md)
+    print(f"Done (${spent:.3f}).\n")
+    if args.output:
+        with open(args.output, "w") as f:
+            f.write(md)
+        print(f"Written to {args.output}")
+    else:
+        print(md)
+
+
 def cmd_digest(args):
     from . import digest as digest_mod
     md = digest_mod.build_digest(dbm.connect(args.db))
@@ -426,6 +466,14 @@ def main(argv=None):
     p.add_argument("--interval-hours", type=float, default=12.0)
     p.add_argument("--heuristic", action="store_true")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("brief",
+                       help="Generate an opportunity brief for one theme (Opus, ~$0.30-0.60)")
+    target = p.add_mutually_exclusive_group(required=True)
+    target.add_argument("--rank", type=int, help="Theme rank on the leaderboard (1 = top)")
+    target.add_argument("--theme", help="Substring of the theme name")
+    p.add_argument("--output", help="Write markdown to a file instead of stdout")
+    p.set_defaults(func=cmd_brief)
 
     p = sub.add_parser("digest", help="Markdown digest: top themes, movers, new themes")
     p.add_argument("--output", help="Write to a file instead of stdout")

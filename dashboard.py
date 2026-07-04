@@ -188,6 +188,13 @@ for rank, t in enumerate(themes, 1):
                       help="Δ vs the previous scoring run" if prev else
                            "No previous snapshot for this theme (new or renamed)")
 
+        saved_brief = dbm.latest_brief(conn, t["name"])
+        if saved_brief:
+            with st.expander(f"💡 Opportunity brief ({saved_brief['created_at'][:10]})"):
+                st.markdown(saved_brief["content"])
+        elif rank <= 5:
+            st.caption(f"💡 Generate a brief: `python -m painfinder.cli brief --rank {rank}`")
+
         history = dbm.theme_score_history(conn, t["name"])
         if len(history) >= 3:
             with st.expander("Score history"):

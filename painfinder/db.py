@@ -65,6 +65,15 @@ CREATE TABLE IF NOT EXISTS theme_history (
     avg_severity REAL
 );
 
+CREATE TABLE IF NOT EXISTS briefs (
+    id INTEGER PRIMARY KEY,
+    theme_name TEXT NOT NULL,
+    domain TEXT,
+    score REAL,                        -- theme score when the brief was written
+    content TEXT NOT NULL,             -- markdown
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS llm_usage (
     id INTEGER PRIMARY KEY,
     stage TEXT NOT NULL,               -- 'extract' | 'cluster'
@@ -209,6 +218,22 @@ def theme_score_history(conn: sqlite3.Connection, name: str) -> list[sqlite3.Row
     return conn.execute(
         """SELECT snapshot_at, score FROM theme_history
            WHERE name = ? ORDER BY snapshot_at""", (name,)).fetchall()
+
+
+def save_brief(conn: sqlite3.Connection, theme_name: str, domain: str | None,
+               score: float | None, content: str) -> None:
+    conn.execute(
+        """INSERT INTO briefs (theme_name, domain, score, content, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (theme_name, domain, score, content, now_iso()),
+    )
+    conn.commit()
+
+
+def latest_brief(conn: sqlite3.Connection, theme_name: str) -> sqlite3.Row | None:
+    return conn.execute(
+        """SELECT * FROM briefs WHERE theme_name = ?
+           ORDER BY created_at DESC LIMIT 1""", (theme_name,)).fetchone()
 
 
 def stats(conn: sqlite3.Connection) -> dict:

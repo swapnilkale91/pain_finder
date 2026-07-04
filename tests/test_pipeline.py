@@ -486,6 +486,33 @@ def test_theme_history_and_digest(conn):
     assert "merged or renamed" in md  # Beta disappeared
 
 
+def test_brief_evidence_and_storage(conn):
+    from painfinder import brief as brief_mod
+
+    theme = {"name": "Reconciliation pain", "domain": "crypto payments", "score": 12.3,
+             "pain_count": 2, "avg_severity": 4.0, "source_count": 2,
+             "description": "Teams reconcile on/off-ramp flows by hand."}
+    evidence = [
+        {"source": "hn_jobs", "location": "Remote (US)", "severity": 5,
+         "description": "Companies hire analysts to reconcile exchange settlements",
+         "tools_mentioned": '["Stripe", "NetSuite"]',
+         "quote": "manually reconcile billing data between Stripe and NetSuite"},
+        {"source": "app_reviews", "location": "US", "severity": 3,
+         "description": "Users cannot match deposits to transactions",
+         "tools_mentioned": "[]", "quote": None},
+    ]
+    content = brief_mod.build_evidence_content(theme, evidence)
+    assert "THEME: Reconciliation pain" in content
+    assert "tools: Stripe, NetSuite" in content
+    assert 'quote: "manually reconcile' in content
+    assert "[app_reviews] (sev 3)" in content
+
+    dbm.save_brief(conn, theme["name"], theme["domain"], theme["score"], "# brief body")
+    stored = dbm.latest_brief(conn, "Reconciliation pain")
+    assert stored["content"] == "# brief body"
+    assert dbm.latest_brief(conn, "No such theme") is None
+
+
 def test_cluster_index_dedupe():
     clusters = [
         {"name": "A", "description": "", "domain": "x", "indices": [0, 1, 1, 2]},
