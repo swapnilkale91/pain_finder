@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS raw_items (
     fetched_at TEXT NOT NULL,
     extracted INTEGER NOT NULL DEFAULT 0,
     domain TEXT,                       -- market/domain this item was collected for
+    location TEXT,                     -- country code (reviews) or parsed location (job posts)
     UNIQUE (source, external_id)
 );
 
@@ -73,7 +74,8 @@ def now_iso() -> str:
 
 def _migrate(conn: sqlite3.Connection) -> None:
     """Additive migrations for databases created before a column existed."""
-    for table, col, decl in [("raw_items", "domain", "TEXT"), ("themes", "domain", "TEXT")]:
+    for table, col, decl in [("raw_items", "domain", "TEXT"), ("themes", "domain", "TEXT"),
+                             ("raw_items", "location", "TEXT")]:
         cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
         if col not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
@@ -96,12 +98,12 @@ def insert_raw_items(conn: sqlite3.Connection, items: list[dict]) -> int:
         cur = conn.execute(
             """INSERT OR IGNORE INTO raw_items
                (source, external_id, title, author, rating, text, url, posted_at,
-                fetched_at, domain)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                fetched_at, domain, location)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 it["source"], it["external_id"], it.get("title"), it.get("author"),
                 it.get("rating"), it["text"], it.get("url"), it.get("posted_at"),
-                now_iso(), it.get("domain"),
+                now_iso(), it.get("domain"), it.get("location"),
             ),
         )
         inserted += cur.rowcount
@@ -134,7 +136,7 @@ def save_pains(conn: sqlite3.Connection, raw_item_id: int, pains: list[dict]) ->
 def all_pains(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         """SELECT pains.*, raw_items.source, raw_items.title AS item_title,
-                  raw_items.url, raw_items.posted_at, raw_items.domain
+                  raw_items.url, raw_items.posted_at, raw_items.domain, raw_items.location
            FROM pains JOIN raw_items ON raw_items.id = pains.raw_item_id
            ORDER BY pains.id"""
     ).fetchall()

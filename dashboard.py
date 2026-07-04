@@ -19,27 +19,28 @@ spend = usage_mod.summary(conn)
 # --- Header -------------------------------------------------------------------
 
 st.title("pain_finder")
-st.markdown(
-    "Pain themes mined from **job boards** (what companies pay people to do manually) "
-    "and **app reviews** (what drives users away from incumbents), ranked by frequency, "
-    "severity, and cross-source corroboration."
+st.caption(
+    "Pain themes mined from job boards (what companies pay people to do manually) and "
+    "app reviews (what drives users away from incumbents) — ranked by frequency, severity, "
+    "and cross-source corroboration."
 )
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Items collected", f"{stats['raw_items']:,}",
-          help="Job posts + reviews ingested (deduplicated)")
+          help="Job posts + reviews ingested (deduplicated). Ingestion is free.")
 m2.metric("Pain points", f"{stats['pains']:,}",
           help="Structured pains extracted from the raw items")
 m3.metric("Themes", stats["themes"],
           help="Clusters of pains describing the same underlying problem")
 m4.metric("LLM spend", f"${spend['total']['cost_usd']:,.2f}",
-          help="Cumulative Claude API cost across extraction + clustering "
-               "(ingestion is free). Estimated from list prices incl. batch "
-               "and cache discounts.")
+          help="Cumulative Claude API cost (extraction + clustering), estimated from "
+               "list prices incl. batch and cache discounts")
 
 if stats["unextracted"]:
     st.caption(f"⏳ {stats['unextracted']:,} items awaiting extraction — run "
-               f"`python -m painfinder.cli extract --batch`")
+               "`python -m painfinder.cli extract --batch`")
+
+st.divider()
 
 # --- Sidebar: filters + spend detail -------------------------------------------
 
@@ -48,25 +49,25 @@ domain_options = [r[0] for r in conn.execute(
 
 with st.sidebar:
     st.header("Filters")
-    query = st.text_input("Search themes", placeholder="e.g. billing, sync, spreadsheet")
-    selected_domains = st.multiselect("Domains", domain_options,
-                                      help="Market/domain each theme was assigned at clustering")
+    query = st.text_input("Search themes", placeholder="billing, sync, reconciliation…")
+    selected_domains = st.multiselect("Domain", domain_options,
+                                      help="Market each theme was assigned at clustering")
+    loc_query = st.text_input("Location contains", placeholder="remote, US, berlin…",
+                              help="Matches review store country and job-post locations; "
+                                   "themes with no matching evidence are hidden")
     min_severity = st.slider("Min. avg severity", 1.0, 5.0, 1.0, 0.5)
     only_corroborated = st.toggle(
         "Corroborated only",
-        help="Show only themes seen in BOTH job posts and app reviews — the strongest signal",
+        help="Only themes seen in BOTH job posts and app reviews — the strongest signal",
     )
 
     st.divider()
     st.subheader("Spend by stage")
     if spend["stages"]:
         for s in spend["stages"]:
-            st.markdown(
-                f"**{s['stage']}** · {s['calls']} calls · ${s['cost_usd']:.3f}  \n"
-                f"<span style='color:gray;font-size:0.85em'>"
-                f"{s['input_tokens']:,} in / {s['output_tokens']:,} out tokens</span>",
-                unsafe_allow_html=True,
-            )
+            st.caption(f"{s['stage']} · {s['calls']} calls · "
+                       f"{s['input_tokens']:,} in / {s['output_tokens']:,} out · "
+                       f"${s['cost_usd']:.3f}")
     else:
         st.caption("No Claude calls recorded yet.")
 
@@ -77,11 +78,26 @@ themes = conn.execute("SELECT * FROM themes ORDER BY score DESC").fetchall()
 if not themes:
     st.info(
         "No themes yet. Run the pipeline first:\n\n"
-        "```\npython -m painfinder.cli run --apps \"notion,quickbooks\" --batch\n```"
+        "```\npython -m painfinder.cli run --domains \"crypto exchange,bookkeeping\" --batch\n```"
     )
     st.stop()
 
-max_score = max(t["score"] for t in themes) or 1.0
+
+def evidence_rows(theme_id: int) -> list:
+    rows = conn.execute(
+        """SELECT pains.*, raw_items.source, raw_items.title AS item_title,
+                  raw_items.url, raw_items.location
+           FROM theme_pains
+           JOIN pains ON pains.id = theme_pains.pain_id
+           JOIN raw_items ON raw_items.id = pains.raw_item_id
+           WHERE theme_pains.theme_id = ?
+           ORDER BY pains.severity DESC""",
+        (theme_id,),
+    ).fetchall()
+    if loc_query:
+        rows = [r for r in rows if loc_query.lower() in (r["location"] or "").lower()]
+    return rows
+
 
 shown = 0
 for rank, t in enumerate(themes, 1):
@@ -94,50 +110,45 @@ for rank, t in enumerate(themes, 1):
         continue
     if selected_domains and t["domain"] not in selected_domains:
         continue
+    rows = evidence_rows(t["id"])
+    if loc_query and not rows:
+        continue
     shown += 1
 
     with st.container(border=True):
-        head, badge = st.columns([5, 1])
+        head, badge = st.columns([6, 1])
         with head:
-            st.subheader(f"{rank}. {t['name']}")
+            st.markdown(f"#### {rank}. {t['name']}")
             if t["description"]:
                 st.markdown(t["description"])
+            chips = []
+            if t["domain"]:
+                chips.append(f"`{t['domain']}`")
+            chips.append(f"{t['pain_count']} pains")
+            chips.append(f"severity {t['avg_severity']}")
+            chips.append("🟢 corroborated" if t["source_count"] > 1 else "single source")
+            st.caption(" · ".join(chips))
         with badge:
             st.metric("Score", f"{t['score']:.1f}")
 
-        facts = f"**{t['pain_count']}** pains · avg severity **{t['avg_severity']}**"
-        if t["domain"]:
-            facts = f"🏷️ `{t['domain']}` · " + facts
-        if t["source_count"] > 1:
-            facts += " · 🟢 **corroborated** (job posts *and* reviews)"
-        else:
-            facts += " · single source type"
-        st.markdown(facts)
-
-        with st.expander(f"Evidence ({t['pain_count']})"):
-            rows = conn.execute(
-                """SELECT pains.*, raw_items.source, raw_items.title AS item_title, raw_items.url
-                   FROM theme_pains
-                   JOIN pains ON pains.id = theme_pains.pain_id
-                   JOIN raw_items ON raw_items.id = pains.raw_item_id
-                   WHERE theme_pains.theme_id = ?
-                   ORDER BY pains.severity DESC""",
-                (t["id"],),
-            ).fetchall()
+        label = f"Evidence ({len(rows)}{' matching' if loc_query else ''})"
+        with st.expander(label):
             for p in rows:
                 source_label = "💼 job post" if p["source"] == "hn_jobs" else "⭐ review"
-                sev = "🔥" * (p["severity"] or 1)
+                meta = [source_label, "🔥" * (p["severity"] or 1)]
+                if p["location"]:
+                    meta.append(f"📍 {p['location']}")
                 tools = ", ".join(json.loads(p["tools_mentioned"] or "[]"))
-                st.markdown(f"**{p['description']}**")
-                meta = f"{source_label} · severity {sev}"
                 if tools:
-                    meta += f" · tools: {tools}"
-                st.caption(meta)
-                if p["quote"]:
-                    src = f" — [{p['item_title']}]({p['url']})" if p["url"] else \
-                          (f" — {p['item_title']}" if p["item_title"] else "")
-                    st.markdown(f"> {p['quote'][:400]}{src}")
-                st.markdown("")
+                    meta.append(tools)
+                src = ""
+                if p["item_title"]:
+                    src = f" — [{p['item_title']}]({p['url']})" if p["url"] else f" — {p['item_title']}"
+                quote = f"\n> {p['quote'][:400]}{src}" if p["quote"] else ""
+                st.markdown(f"**{p['description']}**  \n"
+                            f"<span style='color:gray;font-size:0.85em'>{' · '.join(meta)}</span>"
+                            f"{quote}",
+                            unsafe_allow_html=True)
 
 if shown == 0:
     st.warning("No themes match the current filters.")

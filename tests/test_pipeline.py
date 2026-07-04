@@ -9,7 +9,7 @@ from painfinder import extract as extract_mod
 from painfinder import score as score_mod
 from painfinder import usage as usage_mod
 from painfinder.ingest.app_reviews import parse_review_entries
-from painfinder.ingest.hn_jobs import parse_comment_hits, strip_html
+from painfinder.ingest.hn_jobs import extract_location, parse_comment_hits, strip_html
 
 # --- Fixtures mirroring real API response shapes -----------------------------
 
@@ -71,6 +71,13 @@ def test_strip_html():
     assert strip_html("<p>Hello &amp; welcome</p><p>Line 2</p>") == "Hello & welcome\nLine 2"
 
 
+def test_extract_location():
+    assert extract_location("Acme | Ops Analyst | Remote (US) | Full-time") == "Remote (US)"
+    assert extract_location("Acme | Engineer | Berlin, Germany") == "Berlin, Germany"
+    assert extract_location("Acme | ONSITE in NYC | Senior Dev") == "ONSITE in NYC"
+    assert extract_location("Acme hiring engineers") is None
+
+
 def test_parse_hn_comments():
     items = parse_comment_hits(ALGOLIA_COMMENT_HITS, "Ask HN: Who is hiring? (July 2026)")
     assert len(items) == 1
@@ -80,6 +87,7 @@ def test_parse_hn_comments():
     assert item["title"].startswith("Acme Corp | Ops Analyst")
     assert "reconcile billing data" in item["text"]
     assert item["url"] == "https://news.ycombinator.com/item?id=1001"
+    assert item["location"] == "Remote (US)"
 
 
 def test_parse_review_entries():
@@ -142,8 +150,9 @@ def test_full_pipeline_heuristic(conn):
     assert stats["pains"] > 0
 
     pains = [dict(r) for r in dbm.all_pains(conn)]
-    # domain flows from ingest through to the extracted pains
+    # domain and location flow from ingest through to the extracted pains
     assert any(p["domain"] == "note-taking" for p in pains)
+    assert any(p["location"] == "Remote (US)" for p in pains)
 
     themes = score_mod.build_themes(pains, heuristic=True)
     assert themes

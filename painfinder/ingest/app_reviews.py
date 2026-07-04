@@ -103,8 +103,9 @@ def ingest(app_term: str | None = None, app_id: int | None = None,
     items = parse_review_entries(entries, app_name)
     if max_rating is not None:
         items = [i for i in items if i["rating"] <= max_rating]
-    if domain:
-        for i in items:
+    for i in items:
+        i["location"] = country.upper()
+        if domain:
             i["domain"] = domain
     return app_name, items
 
@@ -131,6 +132,7 @@ def ingest_domain(domain: str, query: str | None = None, country: str = "us",
             items = [i for i in items if i["rating"] <= max_rating]
         for i in items:
             i["domain"] = domain
+            i["location"] = country.upper()
         all_items.extend(items)
         names.append(app["name"])
     return names, all_items

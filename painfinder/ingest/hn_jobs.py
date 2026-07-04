@@ -15,6 +15,21 @@ ALGOLIA = "https://hn.algolia.com/api/v1"
 USER_AGENT = "pain_finder/0.1 (PMF research tool)"
 
 
+_LOC_HINT = re.compile(r"\b(remote|onsite|on-site|hybrid|relocation)\b", re.I)
+
+
+def extract_location(first_line: str) -> str | None:
+    """Best-effort location from the conventional 'Company | Role | Location | ...'
+    first line of an HN job post. Free — no LLM involved."""
+    segments = [s.strip() for s in first_line.split("|")]
+    hints = [s for s in segments if _LOC_HINT.search(s)]
+    if hints:
+        return "; ".join(hints[:2])[:120]
+    if len(segments) >= 3 and segments[2]:
+        return segments[2][:120]
+    return None
+
+
 def strip_html(text: str) -> str:
     """Convert HN comment HTML to plain text."""
     text = re.sub(r"<p>", "\n", text)
@@ -42,6 +57,7 @@ def parse_comment_hits(hits: list[dict], thread_title: str) -> list[dict]:
             "text": plain,
             "url": f"https://news.ycombinator.com/item?id={h['objectID']}",
             "posted_at": h.get("created_at"),
+            "location": extract_location(first_line),
         })
     return items
 

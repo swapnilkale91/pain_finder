@@ -52,6 +52,10 @@ python -m painfinder.cli ingest-domain "crypto exchange"
 python -m painfinder.cli ingest-domain "bookkeeping" --top 15
 python -m painfinder.cli ingest-domain "crypto on/off-ramp" --query "buy crypto"
 
+# Location: --country pulls a different App Store storefront (tagged on every item);
+# job posts get their location parsed from the "Company | Role | Location" first line
+python -m painfinder.cli ingest-domain "bookkeeping" --country in
+
 # 3. Extract structured pain points (uses Claude; add --limit 50 to control spend)
 python -m painfinder.cli extract
 
