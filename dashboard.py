@@ -4,6 +4,7 @@ Run:  streamlit run dashboard.py
 """
 
 import json
+from pathlib import Path
 
 import streamlit as st
 
@@ -24,6 +25,11 @@ st.caption(
     "Pain themes mined from market evidence—job posts, product reviews, and developer "
     "issues—ranked by frequency, severity, and cross-source corroboration."
 )
+refresh_marker = Path("data/last_updated.txt")
+if refresh_marker.exists():
+    refreshed_at = refresh_marker.read_text().strip()
+    if refreshed_at:
+        st.caption(f"Data refreshed: `{refreshed_at}`")
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Items collected", f"{stats['raw_items']:,}",

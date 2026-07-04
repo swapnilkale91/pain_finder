@@ -118,7 +118,8 @@ full pipeline **daily** and commits the updated SQLite DB back to the repo. To e
 
 For the dashboard, deploy to **Streamlit Community Cloud** (free): share.streamlit.io →
 New app → point it at this repo and `dashboard.py`. It reads `data/painfinder.db` from the
-repo, and redeploys automatically whenever the Actions run pushes fresh data.
+repo. Each pipeline run also updates `data/last_updated.txt`, a text marker that makes Streamlit
+reload binary SQLite changes and shows the active data timestamp in the dashboard header.
 
 Prefer your own server instead? The cron line above is all you need — the app is a plain
 Python process with a SQLite file, no other infrastructure.
