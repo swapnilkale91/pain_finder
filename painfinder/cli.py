@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 import time
 
@@ -274,6 +275,14 @@ def cmd_run(args):
             except Exception as e:
                 failed_stages.append("score")
                 print(f"Score failed: {e}", file=sys.stderr)
+        try:
+            from . import digest as digest_mod
+            digest_path = os.path.join(os.path.dirname(args.db) or ".", "digest.md")
+            with open(digest_path, "w") as f:
+                f.write(digest_mod.build_digest(conn))
+            print(f"Digest written to {digest_path}")
+        except Exception as e:
+            print(f"Digest generation failed: {e}", file=sys.stderr)
         s = usage_mod.summary(conn)["total"]
         print(f"Cumulative LLM spend: ${s['cost_usd']:.2f} "
               f"({s['input_tokens']:,} in / {s['output_tokens']:,} out tokens)")
@@ -286,6 +295,17 @@ def cmd_run(args):
     if failed_stages:
         print(f"Run finished with failures: {', '.join(failed_stages)}", file=sys.stderr)
         sys.exit(1)
+
+
+def cmd_digest(args):
+    from . import digest as digest_mod
+    md = digest_mod.build_digest(dbm.connect(args.db))
+    if args.output:
+        with open(args.output, "w") as f:
+            f.write(md)
+        print(f"Digest written to {args.output}")
+    else:
+        print(md)
 
 
 def cmd_usage(args):
@@ -406,6 +426,10 @@ def main(argv=None):
     p.add_argument("--interval-hours", type=float, default=12.0)
     p.add_argument("--heuristic", action="store_true")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("digest", help="Markdown digest: top themes, movers, new themes")
+    p.add_argument("--output", help="Write to a file instead of stdout")
+    p.set_defaults(func=cmd_digest)
 
     p = sub.add_parser("usage", help="Show LLM token usage and estimated cost")
     p.set_defaults(func=cmd_usage)

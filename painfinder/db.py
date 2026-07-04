@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS theme_pains (
     PRIMARY KEY (theme_id, pain_id)
 );
 
+CREATE TABLE IF NOT EXISTS theme_history (
+    id INTEGER PRIMARY KEY,
+    snapshot_at TEXT NOT NULL,         -- one timestamp per scoring run
+    name TEXT NOT NULL,
+    domain TEXT,
+    score REAL,
+    pain_count INTEGER,
+    source_count INTEGER,
+    avg_severity REAL
+);
+
 CREATE TABLE IF NOT EXISTS llm_usage (
     id INTEGER PRIMARY KEY,
     stage TEXT NOT NULL,               -- 'extract' | 'cluster'
@@ -143,9 +154,23 @@ def all_pains(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def replace_themes(conn: sqlite3.Connection, themes: list[dict]) -> None:
-    """themes: [{name, description, pain_ids, avg_severity, source_count, score}]"""
+    """themes: [{name, description, pain_ids, avg_severity, source_count, score}]
+
+    Also appends a snapshot of every theme to theme_history, so scores can be
+    tracked across runs (rising pains = opportunities)."""
     conn.execute("DELETE FROM theme_pains")
     conn.execute("DELETE FROM themes")
+    # Microsecond precision: two scoring runs in the same second must not
+    # merge into one snapshot.
+    snapshot_at = datetime.now(timezone.utc).isoformat()
+    for t in themes:
+        conn.execute(
+            """INSERT INTO theme_history (snapshot_at, name, domain, score,
+                                          pain_count, source_count, avg_severity)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (snapshot_at, t["name"], t.get("domain"), t["score"],
+             len(t["pain_ids"]), t["source_count"], t["avg_severity"]),
+        )
     for t in themes:
         cur = conn.execute(
             """INSERT INTO themes (name, description, domain, pain_count, source_count,
@@ -162,6 +187,28 @@ def replace_themes(conn: sqlite3.Connection, themes: list[dict]) -> None:
             [(theme_id, pid) for pid in t["pain_ids"]],
         )
     conn.commit()
+
+
+def last_two_snapshots(conn: sqlite3.Connection) -> tuple[dict, dict]:
+    """Returns ({name: row} for the latest snapshot, same for the previous one).
+    Either dict may be empty. Themes are matched across runs by exact name."""
+    times = [r[0] for r in conn.execute(
+        "SELECT DISTINCT snapshot_at FROM theme_history ORDER BY snapshot_at DESC LIMIT 2"
+    )]
+    out = []
+    for ts in times:
+        rows = conn.execute(
+            "SELECT * FROM theme_history WHERE snapshot_at = ?", (ts,)).fetchall()
+        out.append({r["name"]: r for r in rows})
+    while len(out) < 2:
+        out.append({})
+    return out[0], out[1]
+
+
+def theme_score_history(conn: sqlite3.Connection, name: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        """SELECT snapshot_at, score FROM theme_history
+           WHERE name = ? ORDER BY snapshot_at""", (name,)).fetchall()
 
 
 def stats(conn: sqlite3.Connection) -> dict:

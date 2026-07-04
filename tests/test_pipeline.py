@@ -457,6 +457,35 @@ def test_usage_recording_and_summary(conn):
     assert s["total"]["input_tokens"] == 800 + 600 + 1000
 
 
+def test_theme_history_and_digest(conn):
+    from painfinder import digest as digest_mod
+
+    def theme(name, score, pain_ids):
+        return {"name": name, "description": "", "domain": "testing",
+                "pain_ids": pain_ids, "source_count": 1,
+                "avg_severity": 3.0, "score": score}
+
+    # Seed minimal pains so pain_ids are valid foreign keys
+    dbm.insert_raw_items(conn, [{"source": "hn_jobs", "external_id": "x",
+                                 "text": "t" * 100}])
+    dbm.save_pains(conn, 1, [{"description": "d", "category": "other",
+                              "severity": 3} for _ in range(3)])
+
+    dbm.replace_themes(conn, [theme("Alpha", 5.0, [1]), theme("Beta", 3.0, [2])])
+    dbm.replace_themes(conn, [theme("Alpha", 7.5, [1, 2]), theme("Gamma", 2.0, [3])])
+
+    latest, previous = dbm.last_two_snapshots(conn)
+    assert set(latest) == {"Alpha", "Gamma"}
+    assert set(previous) == {"Alpha", "Beta"}
+    assert len(dbm.theme_score_history(conn, "Alpha")) == 2
+
+    md = digest_mod.build_digest(conn)
+    assert "▲ +2.5" in md          # Alpha rose 5.0 -> 7.5
+    assert "Gamma" in md           # appears as a new theme
+    assert "New themes" in md
+    assert "merged or renamed" in md  # Beta disappeared
+
+
 def test_cluster_index_dedupe():
     clusters = [
         {"name": "A", "description": "", "domain": "x", "indices": [0, 1, 1, 2]},

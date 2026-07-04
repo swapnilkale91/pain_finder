@@ -86,6 +86,7 @@ with st.sidebar:
 # --- Themes -------------------------------------------------------------------
 
 themes = conn.execute("SELECT * FROM themes ORDER BY score DESC").fetchall()
+_, previous_snapshot = dbm.last_two_snapshots(conn)
 
 if not themes:
     st.info(
@@ -143,7 +144,22 @@ for rank, t in enumerate(themes, 1):
             chips.append("🟢 corroborated" if t["source_count"] > 1 else "single source")
             st.caption(" · ".join(chips))
         with badge:
-            st.metric("Score", f"{t['score']:.1f}")
+            prev = previous_snapshot.get(t["name"])
+            delta = round(t["score"] - prev["score"], 1) if prev else None
+            st.metric("Score", f"{t['score']:.1f}",
+                      delta=(delta if delta else None),
+                      help="Δ vs the previous scoring run" if prev else
+                           "No previous snapshot for this theme (new or renamed)")
+
+        history = dbm.theme_score_history(conn, t["name"])
+        if len(history) >= 3:
+            with st.expander("Score history"):
+                import pandas as pd
+                df = pd.DataFrame(
+                    {"score": [h["score"] for h in history]},
+                    index=pd.to_datetime([h["snapshot_at"] for h in history]),
+                )
+                st.line_chart(df, height=160)
 
         label = f"Evidence ({len(rows)}{' matching' if (loc_query or selected_sources) else ''})"
         with st.expander(label):

@@ -41,6 +41,13 @@ jobs:
           --budget-usd "$BUDGET_USD"
           --batch
 
+      - name: Publish digest as job summary
+        if: always()
+        run: |
+          if [ -f data/digest.md ]; then
+            cat data/digest.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Commit updated database
         # always() — extraction spend must be preserved even if a later
         # stage failed, otherwise a crash wastes the API budget already spent
@@ -50,6 +57,7 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           date -u +"%Y-%m-%dT%H:%M:%SZ" > data/last_updated.txt
           git add -f data/painfinder.db data/last_updated.txt
+          [ -f data/digest.md ] && git add -f data/digest.md
           if git diff --cached --quiet; then
             echo "No new data this run."
           else
