@@ -38,6 +38,17 @@ Be honest when signals are weak.
 A concrete 5-step plan a solo founder could execute in 7 days with < $200: where to find
 20 sufferers, what to ask, what artifact to put in front of them, and the pass/fail bar.
 
+## Who to talk to
+Turn the evidence into an outreach list the founder can work manually on LinkedIn:
+- 3-5 personas who FEEL this pain (exact job titles as they appear on LinkedIn, at what
+  kind/size of company, and why this persona rather than their boss).
+- For each persona, a ready-to-paste LinkedIn search query using boolean syntax,
+  e.g. ("revenue operations" OR "billing ops") AND (crypto OR exchange).
+- Companies visible in the evidence (job posters, products complained about) worth
+  targeting directly — note that current employees of complained-about products are
+  usually the wrong first call; their frustrated CUSTOMERS are the right one.
+- A one-line opener for each persona referencing the pain in their own vocabulary.
+
 ## Risks & honest caveats
 The 2-3 most likely reasons this opportunity is worse than it looks (platform risk,
 incumbent adjacency, evidence bias — e.g. review-store complaints skew consumer).
@@ -63,6 +74,11 @@ def build_evidence_content(theme: sqlite3.Row | dict, evidence: list) -> str:
         parts = [f"- [{p['source']}] (sev {p['severity']})"]
         if p["location"]:
             parts.append(f"({p['location']})")
+        # Job posts carry the hiring company in the conventional first-line
+        # 'Company | Role | ...' title — outreach gold, pass it through.
+        title = p["item_title"] if "item_title" in p.keys() else None
+        if title and p["source"] == "hn_jobs":
+            parts.append(f"[company: {title.split('|')[0].strip()}]")
         parts.append(p["description"])
         if tools:
             parts.append(f"| tools: {tools}")
@@ -75,7 +91,8 @@ def build_evidence_content(theme: sqlite3.Row | dict, evidence: list) -> str:
 
 def theme_evidence(conn: sqlite3.Connection, theme_id: int) -> list:
     return conn.execute(
-        """SELECT pains.*, raw_items.source, raw_items.location
+        """SELECT pains.*, raw_items.source, raw_items.location,
+                  raw_items.title AS item_title
            FROM theme_pains
            JOIN pains ON pains.id = theme_pains.pain_id
            JOIN raw_items ON raw_items.id = pains.raw_item_id

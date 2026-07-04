@@ -232,13 +232,16 @@ def cmd_run(args):
             except Exception as e:
                 failed_stages.append(f"ingest-reviews:{app}")
                 print(f"Review ingest for {app!r} failed: {e}", file=sys.stderr)
+        countries = [c.strip() for c in (args.countries or "us").split(",") if c.strip()]
         for domain in domains:
-            try:
-                _ingest_domain(conn, domain, top=args.top, pages=args.pages,
-                               max_rating=args.max_rating)
-            except Exception as e:
-                failed_stages.append(f"ingest-domain:{domain}")
-                print(f"Domain ingest for {domain!r} failed: {e}", file=sys.stderr)
+            for country in countries:
+                try:
+                    _ingest_domain(conn, domain, country=country, top=args.top,
+                                   pages=args.pages, max_rating=args.max_rating)
+                except Exception as e:
+                    failed_stages.append(f"ingest-domain:{domain}:{country}")
+                    print(f"Domain ingest for {domain!r} ({country}) failed: {e}",
+                          file=sys.stderr)
         if not args.skip_github:
             for domain in domains:
                 try:
@@ -455,6 +458,9 @@ def main(argv=None):
     p.add_argument("--skip-hn-discussions", action="store_true",
                    help="Do not search HN discussions for the configured domains")
     p.add_argument("--top", type=int, default=10, help="Apps per domain sweep")
+    p.add_argument("--countries", default="us",
+                   help="Comma-separated App Store storefronts for domain sweeps, "
+                        "e.g. 'us,in,gb' — gives the geography dimension its data")
     p.add_argument("--max", type=int, default=500, help="Max HN job posts")
     p.add_argument("--pages", type=int, default=5)
     p.add_argument("--max-rating", type=int, default=3)

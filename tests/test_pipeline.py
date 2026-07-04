@@ -486,6 +486,29 @@ def test_theme_history_and_digest(conn):
     assert "merged or renamed" in md  # Beta disappeared
 
 
+def test_coarse_location():
+    from painfinder.geo import coarse_location
+    assert coarse_location("US") == "United States"
+    assert coarse_location("in") == "India"
+    assert coarse_location("Remote (US)") == "United States"   # country beats remote
+    assert coarse_location("Berlin, Germany | ONSITE") == "Germany"
+    assert coarse_location("Bangalore") == "India"
+    assert coarse_location("REMOTE") == "Remote (unspecified)"
+    assert coarse_location(None) == "Unknown"
+    assert coarse_location("Atlantis") == "Other"
+
+
+def test_brief_evidence_includes_company():
+    from painfinder import brief as brief_mod
+    theme = {"name": "T", "domain": None, "score": 1.0, "pain_count": 1,
+             "avg_severity": 3.0, "source_count": 1, "description": None}
+    evidence = [{"source": "hn_jobs", "location": None, "severity": 4,
+                 "description": "d", "tools_mentioned": "[]", "quote": None,
+                 "item_title": "Acme Corp | Ops Analyst | Remote"}]
+    content = brief_mod.build_evidence_content(theme, evidence)
+    assert "[company: Acme Corp]" in content
+
+
 def test_brief_evidence_and_storage(conn):
     from painfinder import brief as brief_mod
 

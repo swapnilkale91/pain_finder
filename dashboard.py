@@ -85,6 +85,49 @@ if stats["unextracted"]:
 
 st.divider()
 
+# --- Breakdown explorer ---------------------------------------------------------
+
+with st.expander("📊 Breakdown explorer — group pains by geography, domain, and more"):
+    from painfinder.geo import coarse_location
+
+    _DIMS = {
+        "Domain": lambda r: r["domain"] or "(untagged)",
+        "Geography": lambda r: coarse_location(r["location"]),
+        "Source": lambda r: get_source(r["source"]).label,
+        "Category": lambda r: r["category"] or "other",
+        "Severity": lambda r: str(r["severity"] or 1),
+    }
+    c1, c2 = st.columns(2)
+    dim1 = c1.selectbox("Group by", list(_DIMS), index=0)
+    dim2 = c2.selectbox("Then by", ["(none)"] + [d for d in _DIMS if d != dim1])
+
+    pain_rows = conn.execute(
+        """SELECT pains.category, pains.severity, raw_items.domain,
+                  raw_items.location, raw_items.source
+           FROM pains JOIN raw_items ON raw_items.id = pains.raw_item_id"""
+    ).fetchall()
+
+    from collections import defaultdict
+    groups: dict[tuple, list] = defaultdict(list)
+    for r in pain_rows:
+        key = (_DIMS[dim1](r),) if dim2 == "(none)" else (_DIMS[dim1](r), _DIMS[dim2](r))
+        groups[key].append(r)
+
+    total = len(pain_rows) or 1
+    table = [
+        {
+            dim1: key[0],
+            **({dim2: key[1]} if dim2 != "(none)" else {}),
+            "Pains": len(members),
+            "Share": f"{100 * len(members) / total:.1f}%",
+            "Avg severity": round(sum(m["severity"] or 1 for m in members) / len(members), 2),
+        }
+        for key, members in sorted(groups.items(), key=lambda kv: -len(kv[1]))
+    ]
+    st.dataframe(table, use_container_width=True, hide_index=True)
+    st.caption(f"{len(pain_rows):,} pains across {len(groups)} group(s). "
+               "Geography is coarse-bucketed from review storefronts and job-post locations.")
+
 # --- Sidebar: filters + spend detail -------------------------------------------
 
 domain_options = [r[0] for r in conn.execute(

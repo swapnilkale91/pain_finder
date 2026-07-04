@@ -15,6 +15,7 @@ concurrency:
 env:
   REVIEW_APPS: "notion,quickbooks"                 # specific apps to track
   DOMAINS: "crypto exchange,bookkeeping"           # whole domains to sweep (top 10 apps each)
+  COUNTRIES: "us,in,gb"                            # App Store storefronts per domain sweep
   BUDGET_USD: "4"                                  # per-run extraction spend cap
 
 jobs:
@@ -38,6 +39,7 @@ jobs:
           python -m painfinder.cli run
           --apps "$REVIEW_APPS"
           --domains "$DOMAINS"
+          --countries "$COUNTRIES"
           --budget-usd "$BUDGET_USD"
           --batch
 
