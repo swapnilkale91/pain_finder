@@ -16,6 +16,11 @@ from painfinder.ingest.github_issues import (
     parse_issues,
     search_market_issues,
 )
+from painfinder.ingest.hn_discussions import (
+    discover_stories,
+    parse_discussion_hits,
+    search_discussion_hits,
+)
 from painfinder.ingest.hn_jobs import extract_location, parse_comment_hits, strip_html
 from painfinder.sources import get_source, source_family
 
@@ -46,6 +51,34 @@ ALGOLIA_COMMENT_HITS = [
         "author": "no_text",
         "parent_id": 999,
         "comment_text": None,  # deleted comment — dropped
+    },
+]
+
+ALGOLIA_DISCUSSION_HITS = [
+    {
+        "objectID": "2001",
+        "author": "bookkeeper42",
+        "created_at": "2026-06-20T12:00:00Z",
+        "story_title": "Ask HN: Tools for small business accounting?",
+        "comment_text": (
+            "<p>We still manually copy every invoice into a spreadsheet because our bank "
+            "doesn&#x27;t integrate with the accounting tool. We built our own import script "
+            "as a workaround, but it breaks whenever the CSV format changes.</p>"
+        ),
+    },
+    {
+        "objectID": "2002",
+        "author": "founder",
+        "created_at": "2026-06-19T12:00:00Z",
+        "story_title": "Ask HN: Who is hiring? (June 2026)",
+        "comment_text": "<p>Company | Engineer | Remote. We are hiring for our platform.</p>",
+    },
+    {
+        "objectID": "2003",
+        "author": "brief",
+        "created_at": "2026-06-18T12:00:00Z",
+        "story_title": "Accounting software",
+        "comment_text": "<p>Try a spreadsheet.</p>",
     },
 ]
 
@@ -118,6 +151,78 @@ def test_parse_hn_comments():
     assert "reconcile billing data" in item["text"]
     assert item["url"] == "https://news.ycombinator.com/item?id=1001"
     assert item["location"] == "Remote (US)"
+
+
+def test_parse_hn_discussions_keeps_them_separate_from_job_posts():
+    items = parse_discussion_hits(ALGOLIA_DISCUSSION_HITS, domain="bookkeeping")
+    assert len(items) == 1
+    item = items[0]
+    assert item["source"] == "hn"
+    assert item["external_id"] == "2001"
+    assert item["domain"] == "bookkeeping"
+    assert "manually copy every invoice" in item["text"]
+    assert item["url"] == "https://news.ycombinator.com/item?id=2001"
+
+
+def test_hn_discussion_search_discovers_relevant_stories_then_comments():
+    class Response:
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.data
+
+    class Session:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, params, timeout):
+            assert url.endswith("/search")
+            self.calls.append(params)
+            if params["tags"] == "story":
+                return Response({"hits": [{
+                    "objectID": "3001",
+                    "title": "Ask HN: Tools for small business accounting?",
+                }]})
+            comment = dict(ALGOLIA_DISCUSSION_HITS[0])
+            comment.pop("story_title")
+            return Response({"hits": [comment], "nbPages": 1})
+
+    session = Session()
+    hits = search_discussion_hits(
+        session, "bookkeeping", max_comments=10, max_stories=5,
+        days=30, now_ts=2_000_000_000,
+    )
+    assert len(hits) == 1
+    assert session.calls[0]["tags"] == "story"
+    assert session.calls[0]["restrictSearchableAttributes"] == "title"
+    assert session.calls[0]["numericFilters"] == (
+        f"created_at_i>{2_000_000_000 - 30 * 86400}"
+    )
+    assert session.calls[1]["tags"] == "comment,story_3001"
+    assert hits[0]["story_title"] == "Ask HN: Tools for small business accounting?"
+
+
+def test_hn_story_discovery_excludes_job_threads():
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"hits": [
+                {"objectID": "1", "title": "Ask HN: Who is hiring? (July 2026)"},
+                {"objectID": "2", "title": "Ask HN: Better bookkeeping tools?"},
+            ]}
+
+    class Session:
+        def get(self, url, params, timeout):
+            return Response()
+
+    stories = discover_stories(Session(), "bookkeeping", now_ts=2_000_000_000)
+    assert [story["objectID"] for story in stories] == ["2"]
 
 
 def test_parse_review_entries():
@@ -256,6 +361,17 @@ def test_heuristic_extraction_github_issue():
     categories = {p["category"] for p in pains}
     assert "reliability" in categories
     assert "manual_process" in categories
+
+
+def test_heuristic_extraction_hn_discussion():
+    item = parse_discussion_hits(ALGOLIA_DISCUSSION_HITS)[0]
+    pains = extract_mod.extract(
+        item["source"], item["title"], item["text"], heuristic=True,
+    )
+    categories = {p["category"] for p in pains}
+    assert "manual_process" in categories
+    assert "tooling_gap" in categories
+    assert "data_integration" in categories
 
 
 # --- DB + scoring end-to-end --------------------------------------------------

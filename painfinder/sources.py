@@ -60,12 +60,15 @@ SOURCES = {
             "Ignore administrative issue text and implementation details without user pain."
         ),
     ),
-    # Registered now so future collectors inherit consistent semantics and UI labels.
     "hn": SourceDefinition(
         key="hn", label="Hacker News", icon="🟧", family="hn",
         document_type="HACKER NEWS DISCUSSION",
-        extraction_guidance="Extract concrete problems, repeated workarounds, and unmet needs.",
+        extraction_guidance=(
+            "Extract concrete first-hand problems, repeated workarounds, missing tools, and "
+            "unmet needs. Ignore abstract debate, predictions, and second-hand speculation."
+        ),
     ),
+    # Registered now so future collectors inherit consistent semantics and UI labels.
     "reddit": SourceDefinition(
         key="reddit", label="Reddit", icon="🟠", family="reddit",
         document_type="REDDIT DISCUSSION",

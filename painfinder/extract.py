@@ -241,6 +241,16 @@ _ISSUE_PATTERNS = [
     (r"\b(slow|latency|performance|takes forever)\b", "performance", 2),
 ]
 
+_DISCUSSION_PATTERNS = [
+    (r"\b(manually|manual process|spreadsheet|copy(?:ing)? and pasting)\b", "manual_process", 3),
+    (r"\b(workaround|hacky solution|roll(?:ed)? our own|built our own)\b", "tooling_gap", 3),
+    (r"\b(can'?t|cannot|no way to|missing|doesn'?t support)\b", "tooling_gap", 2),
+    (r"\b(integrat\w+|keep .{0,30} in sync|sync\w* fail\w*)\b", "data_integration", 3),
+    (r"\b(too expensive|pricing|price increase|costs? us)\b", "pricing", 3),
+    (r"\b(crash\w*|data loss|unreliable|keeps? failing)\b", "reliability", 4),
+    (r"\b(slow|latency|takes forever|performance problem)\b", "performance", 2),
+]
+
 
 def extract_heuristic(source: str, title: str | None, text: str) -> list[dict]:
     """Cheap keyword extraction — a rough stand-in for the Claude path."""
@@ -249,6 +259,8 @@ def extract_heuristic(source: str, title: str | None, text: str) -> list[dict]:
         patterns = _JOB_PATTERNS
     elif family == "github_issues":
         patterns = _ISSUE_PATTERNS
+    elif family in {"hn", "reddit"}:
+        patterns = _DISCUSSION_PATTERNS
     else:
         patterns = _REVIEW_PATTERNS
     pains, seen_categories = [], set()

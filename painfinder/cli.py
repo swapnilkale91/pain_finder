@@ -2,6 +2,7 @@
 
 Usage:
   python -m painfinder.cli ingest-hn [--max 500]
+  python -m painfinder.cli ingest-hn-discussions --query "bookkeeping" [--max 100]
   python -m painfinder.cli ingest-reviews --app "notion" [--pages 5] [--max-rating 3]
   python -m painfinder.cli ingest-github --query "bookkeeping" [--max 200]
   python -m painfinder.cli extract [--limit N] [--budget-usd 5] [--heuristic]
@@ -26,6 +27,17 @@ def _ingest_hn(conn, max_comments: int) -> None:
     thread_title, items = hn_jobs.ingest(max_comments=max_comments)
     new = dbm.insert_raw_items(conn, items)
     print(f"{thread_title}: fetched {len(items)} job posts, {new} new")
+
+
+def _ingest_hn_discussions(conn, query, domain=None, max_comments=100,
+                           max_stories=10, days=730) -> None:
+    from .ingest import hn_discussions
+    query, items = hn_discussions.ingest(
+        query, domain=domain, max_comments=max_comments,
+        max_stories=max_stories, days=days,
+    )
+    new = dbm.insert_raw_items(conn, items)
+    print(f"HN query {query!r}: fetched {len(items)} discussions, {new} new")
 
 
 def _ingest_reviews(conn, app=None, app_id=None, country="us", pages=5, max_rating=3,
@@ -146,6 +158,13 @@ def cmd_ingest_hn(args):
     _ingest_hn(dbm.connect(args.db), args.max)
 
 
+def cmd_ingest_hn_discussions(args):
+    _ingest_hn_discussions(
+        dbm.connect(args.db), args.query, domain=args.domain,
+        max_comments=args.max, max_stories=args.stories, days=args.days,
+    )
+
+
 def cmd_ingest_reviews(args):
     _ingest_reviews(dbm.connect(args.db), app=args.app, app_id=args.app_id,
                     country=args.country, pages=args.pages, max_rating=args.max_rating,
@@ -194,6 +213,18 @@ def cmd_run(args):
         except Exception as e:
             failed_stages.append("ingest-hn")
             print(f"HN ingest failed: {e}", file=sys.stderr)
+        if not args.skip_hn_discussions:
+            for domain in domains:
+                try:
+                    _ingest_hn_discussions(
+                        conn, domain, domain=domain,
+                        max_comments=args.hn_discussion_max,
+                        max_stories=args.hn_discussion_top,
+                        days=args.hn_discussion_days,
+                    )
+                except Exception as e:
+                    failed_stages.append(f"ingest-hn-discussions:{domain}")
+                    print(f"HN discussion search for {domain!r} failed: {e}", file=sys.stderr)
         for app in apps:
             try:
                 _ingest_reviews(conn, app=app, pages=args.pages, max_rating=args.max_rating)
@@ -283,6 +314,16 @@ def main(argv=None):
     p.add_argument("--max", type=int, default=500, help="Max job posts to fetch")
     p.set_defaults(func=cmd_ingest_hn)
 
+    p = sub.add_parser("ingest-hn-discussions",
+                       help="Search recent Hacker News discussions for a market")
+    p.add_argument("--query", required=True, help="Market-wide HN comment search query")
+    p.add_argument("--domain", help="Optional market/domain label (defaults to query)")
+    p.add_argument("--max", type=int, default=100, help="Max comments to fetch")
+    p.add_argument("--stories", type=int, default=10,
+                   help="Top matching stories to sample")
+    p.add_argument("--days", type=int, default=730, help="How far back to search")
+    p.set_defaults(func=cmd_ingest_hn_discussions)
+
     p = sub.add_parser("ingest-reviews", help="Ingest App Store reviews for one app (free)")
     p.add_argument("--app", help="App name to search for (e.g. 'notion')")
     p.add_argument("--app-id", type=int, help="Explicit App Store track ID")
@@ -345,6 +386,14 @@ def main(argv=None):
                    help="Top GitHub repositories to sample per domain")
     p.add_argument("--skip-github", action="store_true",
                    help="Do not search GitHub for the configured domains")
+    p.add_argument("--hn-discussion-max", type=int, default=100,
+                   help="Max HN discussion comments per domain")
+    p.add_argument("--hn-discussion-top", type=int, default=10,
+                   help="Top matching HN stories to sample per domain")
+    p.add_argument("--hn-discussion-days", type=int, default=730,
+                   help="How far back to search HN discussions")
+    p.add_argument("--skip-hn-discussions", action="store_true",
+                   help="Do not search HN discussions for the configured domains")
     p.add_argument("--top", type=int, default=10, help="Apps per domain sweep")
     p.add_argument("--max", type=int, default=500, help="Max HN job posts")
     p.add_argument("--pages", type=int, default=5)

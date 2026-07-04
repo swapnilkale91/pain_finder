@@ -7,6 +7,8 @@ are worth building for.
 
 **What each source tells you:**
 
+- **Hacker News discussions** are an *emerging-pain* signal — first-hand comments expose
+  workarounds and unmet needs before they harden into established software categories.
 - **Job posts** (HN "Who is hiring?") are a *demand* signal — when many companies hire humans
   to "manually reconcile X with Y" or "build internal tools for Z", that's a budgeted,
   recurring pain with no good product solving it.
@@ -48,6 +50,9 @@ smoke-testing).
 # 1. Ingest the latest HN Who-is-Hiring thread (~monthly, hundreds of posts)
 python -m painfinder.cli ingest-hn
 
+# 1b. Search recent HN discussions for a market (kept separate from job posts)
+python -m painfinder.cli ingest-hn-discussions --query "bookkeeping" --domain "bookkeeping"
+
 # 2a. Ingest critical reviews for specific incumbent apps
 python -m painfinder.cli ingest-reviews --app "notion"
 
@@ -88,7 +93,7 @@ items, re-score:
 # One shot, with a $5 extraction spend cap (the default)
 python -m painfinder.cli run --apps "notion,quickbooks" --budget-usd 5
 
-# Every --domains entry also drives GitHub repository discovery automatically
+# Every --domains entry also drives HN discussion and GitHub repository discovery automatically
 python -m painfinder.cli run --domains "crypto exchange,bookkeeping" --batch
 
 # Keep it running: re-check sources every 12 hours
@@ -167,8 +172,8 @@ rather than trust a number.
 ## Extending
 
 The next-version source set is Hacker News discussions, Reddit, app reviews, GitHub Issues,
-job posts, and G2/Capterra reviews. GitHub Issues is now supported; the source registry already
-defines the semantics and display metadata that future collectors plug into.
+job posts, and G2/Capterra reviews. HN discussions and GitHub Issues are now supported; the
+source registry defines the semantics and display metadata that future collectors plug into.
 
 - **More sources:** add a module under `painfinder/ingest/` that returns
   `{source, external_id, title, text, ...}` dicts — the rest of the pipeline is source-agnostic.
