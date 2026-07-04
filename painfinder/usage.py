@@ -7,18 +7,22 @@ from .db import now_iso
 # $ per million tokens (Claude API list prices)
 PRICES_PER_MTOK = {
     "claude-opus-4-8": {"input": 5.00, "output": 25.00, "cache_write": 6.25, "cache_read": 0.50},
+    "claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cache_write": 1.25, "cache_read": 0.10},
 }
 _DEFAULT_PRICES = PRICES_PER_MTOK["claude-opus-4-8"]
 
+BATCH_DISCOUNT = 0.5  # Batch API is 50% of standard prices
 
-def cost_usd(model: str, tokens: dict) -> float:
+
+def cost_usd(model: str, tokens: dict, batch: bool = False) -> float:
     p = PRICES_PER_MTOK.get(model, _DEFAULT_PRICES)
-    return (
+    cost = (
         tokens.get("input_tokens", 0) * p["input"]
         + tokens.get("output_tokens", 0) * p["output"]
         + tokens.get("cache_write_tokens", 0) * p["cache_write"]
         + tokens.get("cache_read_tokens", 0) * p["cache_read"]
     ) / 1_000_000
+    return cost * BATCH_DISCOUNT if batch else cost
 
 
 def from_response_usage(u) -> dict:
@@ -35,9 +39,10 @@ def from_response_usage(u) -> dict:
     }
 
 
-def record(conn: sqlite3.Connection, stage: str, model: str, tokens: dict) -> float:
+def record(conn: sqlite3.Connection, stage: str, model: str, tokens: dict,
+           batch: bool = False) -> float:
     """Persist one call's usage; returns its estimated cost in USD."""
-    cost = cost_usd(model, tokens)
+    cost = cost_usd(model, tokens, batch=batch)
     conn.execute(
         """INSERT INTO llm_usage (stage, model, input_tokens, output_tokens,
                                   cache_write_tokens, cache_read_tokens, cost_usd, created_at)

@@ -36,16 +36,40 @@ def _ingest_reviews(conn, app=None, app_id=None, country="us", pages=5, max_rati
     print(f"{app_name}: fetched {len(items)} reviews, {new} new")
 
 
-def _extract_all(conn, limit=None, heuristic=False, budget_usd=None) -> None:
+def _extract_all(conn, limit=None, heuristic=False, budget_usd=None, batch=False) -> None:
     items = dbm.unextracted_items(conn, limit=limit)
     if not items:
         print("Extract: nothing new.")
         return
     spent = 0.0
 
-    def sink(stage, model, tokens):
+    def sink(stage, model, tokens, batch=False):
         nonlocal spent
-        spent += usage_mod.record(conn, stage, model, tokens)
+        spent += usage_mod.record(conn, stage, model, tokens, batch=batch)
+
+    if batch and not heuristic:
+        est_per_item = extract_mod.estimate_batch_cost_per_item()
+        if budget_usd is not None:
+            max_items = max(1, int(budget_usd / est_per_item))
+            if len(items) > max_items:
+                print(f"Budget ${budget_usd:.2f} covers ~{max_items} of {len(items)} "
+                      f"pending items — submitting the first {max_items}.")
+                items = items[:max_items]
+        print(f"Extract (batch, {extract_mod.EXTRACT_MODEL}): {len(items)} items, "
+              f"estimated ≤ ${est_per_item * len(items):.2f}")
+        results = extract_mod.extract_batch_with_claude(
+            [dict(it) for it in items], usage_sink=sink,
+        )
+        total_pains = 0
+        for item in items:
+            pains = results.get(item["id"])
+            if pains is None:
+                continue  # failed request — stays unextracted, retried next run
+            dbm.save_pains(conn, item["id"], pains)
+            total_pains += len(pains)
+        print(f"Extract done: {total_pains} pains from {len(results)}/{len(items)} items, "
+              f"${spent:.4f} spent")
+        return
 
     total_pains = 0
     for i, item in enumerate(items, 1):
@@ -75,9 +99,9 @@ def _score_all(conn, heuristic=False) -> None:
         return
     spent = 0.0
 
-    def sink(stage, model, tokens):
+    def sink(stage, model, tokens, batch=False):
         nonlocal spent
-        spent += usage_mod.record(conn, stage, model, tokens)
+        spent += usage_mod.record(conn, stage, model, tokens, batch=batch)
 
     pains = [dict(r) for r in rows]
     themes = score_mod.build_themes(pains, heuristic=heuristic, usage_sink=sink)
@@ -103,7 +127,7 @@ def cmd_ingest_reviews(args):
 
 def cmd_extract(args):
     _extract_all(dbm.connect(args.db), limit=args.limit, heuristic=args.heuristic,
-                 budget_usd=args.budget_usd)
+                 budget_usd=args.budget_usd, batch=args.batch)
 
 
 def cmd_score(args):
@@ -136,7 +160,8 @@ def cmd_run(args):
                 failed_stages.append(f"ingest-reviews:{app}")
                 print(f"Review ingest for {app!r} failed: {e}", file=sys.stderr)
         try:
-            _extract_all(conn, heuristic=args.heuristic, budget_usd=args.budget_usd)
+            _extract_all(conn, heuristic=args.heuristic, budget_usd=args.budget_usd,
+                         batch=args.batch)
         except Exception as e:
             failed_stages.append("extract")
             print(f"Extract failed: {e}", file=sys.stderr)
@@ -198,6 +223,8 @@ def main(argv=None):
     p.add_argument("--limit", type=int, help="Max items to process this run")
     p.add_argument("--budget-usd", type=float,
                    help="Stop extracting once this run's spend reaches the cap")
+    p.add_argument("--batch", action="store_true",
+                   help="Use the Message Batches API (50%% cheaper, minutes of latency)")
     p.add_argument("--heuristic", action="store_true",
                    help="Keyword rules instead of Claude (free, low quality)")
     p.set_defaults(func=cmd_extract)
@@ -214,6 +241,8 @@ def main(argv=None):
     p.add_argument("--max-rating", type=int, default=3)
     p.add_argument("--budget-usd", type=float, default=5.0,
                    help="Per-run extraction spend cap (default $5)")
+    p.add_argument("--batch", action="store_true",
+                   help="Use the Message Batches API for extraction (50%% cheaper)")
     p.add_argument("--loop", action="store_true", help="Keep running on an interval")
     p.add_argument("--interval-hours", type=float, default=12.0)
     p.add_argument("--heuristic", action="store_true")

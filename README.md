@@ -104,11 +104,21 @@ Python process with a SQLite file, no other infrastructure.
 ## Costs
 
 **Ingestion is free** — the HN Algolia API and Apple's review feeds are public and the
-ingest stage makes no LLM calls. The paid stages are **extract** and **score** (Claude API):
+ingest stage makes no LLM calls. The paid stages are **extract** and **score** (Claude API),
+and each stage uses the cheapest model that's good enough:
 
-- Full HN thread (~500 posts): roughly **$4–6**
-- Critical reviews for one app (~100–250 reviews): roughly **$0.50–1**
-- Clustering (one call per `score` run): cents
+| Stage | Model | Why |
+|---|---|---|
+| extract (per-item) | Haiku 4.5 (`PAINFINDER_EXTRACT_MODEL` to override) | Simple classification, high volume — 5× cheaper than Opus |
+| cluster + insight | Opus 4.8 (`PAINFINDER_CLUSTER_MODEL` to override) | One judgment-heavy call over everything |
+
+Add `--batch` to `extract`/`run` to route extraction through the Message Batches API —
+**50% off** on top, at the cost of minutes of latency (irrelevant for scheduled runs; the
+GitHub Actions workflow uses it). Typical costs with Haiku + batch:
+
+- Full HN thread (~500 posts): roughly **$0.30**
+- Critical reviews for one app: **a few cents**
+- Clustering (one Opus call per `score` run): **$0.10–0.50** depending on pain count
 
 Because ingest is deduplicated, follow-up runs only pay for *new* items — a daily `run`
 after the initial backfill typically costs cents. Guardrails and visibility:

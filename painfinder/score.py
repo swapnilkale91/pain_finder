@@ -5,11 +5,13 @@ Scoring is deterministic either way.
 """
 
 import math
+import os
 from collections import defaultdict
 
 from pydantic import BaseModel, Field
 
-MODEL = "claude-opus-4-8"
+# Clustering/insight is the judgment-heavy stage — keep it on the big model.
+MODEL = os.environ.get("PAINFINDER_CLUSTER_MODEL", "claude-opus-4-8")
 
 
 class Theme(BaseModel):

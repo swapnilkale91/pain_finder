@@ -5,11 +5,16 @@ Two engines:
   - Heuristic: keyword rules, so the pipeline runs end-to-end without an API key.
 """
 
+import json
+import os
 import re
+import time
 
 from pydantic import BaseModel, Field
 
-MODEL = "claude-opus-4-8"
+# Extraction is high-volume, per-item classification — the cheap model tier
+# handles it well. Clustering/insight stays on Opus (see score.py).
+EXTRACT_MODEL = os.environ.get("PAINFINDER_EXTRACT_MODEL", "claude-haiku-4-5")
 
 CATEGORIES = [
     "manual_process", "data_integration", "tooling_gap", "pricing",
@@ -72,7 +77,7 @@ def extract_with_claude(source: str, title: str | None, text: str,
     user_content += f":\n\n{text[:6000]}"
 
     response = client.messages.parse(
-        model=MODEL,
+        model=EXTRACT_MODEL,
         max_tokens=2048,
         system=[{
             "type": "text",
@@ -84,11 +89,132 @@ def extract_with_claude(source: str, title: str | None, text: str,
     )
     if usage_sink:
         from .usage import from_response_usage
-        usage_sink("extract", MODEL, from_response_usage(response.usage))
+        usage_sink("extract", EXTRACT_MODEL, from_response_usage(response.usage))
     result = response.parsed_output
     if result is None:
         return []
     return [p.model_dump() for p in result.pains]
+
+
+# --- Batch extraction (50% off — right choice for scheduled runs) -------------
+
+EXTRACT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "pains": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "description": {"type": "string"},
+                    "category": {"type": "string", "enum": CATEGORIES},
+                    "severity": {"type": "integer", "enum": [1, 2, 3, 4, 5]},
+                    "tools_mentioned": {"type": "array", "items": {"type": "string"}},
+                    "quote": {"type": "string"},
+                },
+                "required": ["description", "category", "severity",
+                             "tools_mentioned", "quote"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["pains"],
+    "additionalProperties": False,
+}
+
+
+def _build_user_content(source: str, title: str | None, text: str) -> str:
+    kind = "JOB POST" if source == "hn_jobs" else "APP REVIEW"
+    content = kind + (f" ({title})" if title else "")
+    return content + f":\n\n{text[:6000]}"
+
+
+def _normalize_pains(data: dict) -> list[dict]:
+    """Defensive parse of a batch result payload."""
+    pains = []
+    for p in data.get("pains", []):
+        try:
+            sev = int(p.get("severity", 1))
+        except (TypeError, ValueError):
+            sev = 1
+        desc = str(p.get("description") or "").strip()
+        if not desc:
+            continue
+        pains.append({
+            "description": desc[:500],
+            "category": p.get("category") if p.get("category") in CATEGORIES else "other",
+            "severity": min(5, max(1, sev)),
+            "tools_mentioned": [str(t) for t in (p.get("tools_mentioned") or [])],
+            "quote": str(p.get("quote") or "")[:500],
+        })
+    return pains
+
+
+def estimate_batch_cost_per_item(model: str | None = None) -> float:
+    """Conservative pre-submission estimate (~1200 in / 300 out tokens per item)."""
+    from .usage import PRICES_PER_MTOK, _DEFAULT_PRICES, BATCH_DISCOUNT
+    p = PRICES_PER_MTOK.get(model or EXTRACT_MODEL, _DEFAULT_PRICES)
+    return BATCH_DISCOUNT * (1200 * p["input"] + 300 * p["output"]) / 1_000_000
+
+
+def extract_batch_with_claude(items: list[dict], usage_sink=None,
+                              poll_seconds: int = 30,
+                              timeout_minutes: int = 120) -> dict[int, list[dict]]:
+    """Submit all items as one Message Batch (50% of standard price).
+
+    items: dicts with keys id, source, title, text.
+    Returns {item_id: pains} for succeeded requests; failed items are simply
+    absent, so they stay unextracted and get retried on the next run.
+    """
+    import anthropic
+    client = anthropic.Anthropic()
+
+    requests_list = [
+        {
+            "custom_id": f"item-{it['id']}",
+            "params": {
+                "model": EXTRACT_MODEL,
+                "max_tokens": 2048,
+                "system": [{"type": "text", "text": SYSTEM_PROMPT,
+                            "cache_control": {"type": "ephemeral"}}],
+                "messages": [{"role": "user",
+                              "content": _build_user_content(it["source"], it["title"], it["text"])}],
+                "output_config": {"format": {"type": "json_schema", "schema": EXTRACT_SCHEMA}},
+            },
+        }
+        for it in items
+    ]
+    batch = client.messages.batches.create(requests=requests_list)
+    print(f"  batch {batch.id} submitted ({len(requests_list)} items); polling...")
+
+    deadline = time.time() + timeout_minutes * 60
+    while True:
+        b = client.messages.batches.retrieve(batch.id)
+        if b.processing_status == "ended":
+            break
+        if time.time() > deadline:
+            raise RuntimeError(
+                f"Batch {batch.id} still {b.processing_status} after "
+                f"{timeout_minutes} min — results stay retrievable for 29 days; "
+                f"re-run later or check the Console."
+            )
+        time.sleep(poll_seconds)
+
+    out: dict[int, list[dict]] = {}
+    from .usage import from_response_usage
+    for result in client.messages.batches.results(batch.id):
+        if result.result.type != "succeeded":
+            continue
+        item_id = int(result.custom_id.split("-", 1)[1])
+        msg = result.result.message
+        if usage_sink:
+            usage_sink("extract", EXTRACT_MODEL, from_response_usage(msg.usage), batch=True)
+        text = next((blk.text for blk in msg.content if blk.type == "text"), "")
+        try:
+            out[item_id] = _normalize_pains(json.loads(text))
+        except (json.JSONDecodeError, AttributeError):
+            continue
+    return out
 
 
 # --- Heuristic fallback (no API key required) --------------------------------

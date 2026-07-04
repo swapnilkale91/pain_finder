@@ -147,6 +147,29 @@ def test_full_pipeline_heuristic(conn):
     assert dbm.stats(conn)["themes"] == len(themes)
 
 
+def test_batch_discount_and_haiku_prices(conn):
+    tokens = {"input_tokens": 1000, "output_tokens": 200}
+    full = usage_mod.cost_usd("claude-haiku-4-5", tokens)
+    assert full == pytest.approx((1000 * 1 + 200 * 5) / 1e6)
+    assert usage_mod.cost_usd("claude-haiku-4-5", tokens, batch=True) == pytest.approx(full / 2)
+    assert usage_mod.record(conn, "extract", "claude-haiku-4-5", tokens,
+                            batch=True) == pytest.approx(full / 2)
+
+
+def test_normalize_pains_defensive():
+    data = {"pains": [
+        {"description": "Real pain", "category": "pricing", "severity": 9,
+         "tools_mentioned": ["Stripe"], "quote": "q"},
+        {"description": "", "category": "pricing", "severity": 3},        # dropped: no description
+        {"description": "Odd cat", "category": "not_a_category", "severity": "x"},
+    ]}
+    pains = extract_mod._normalize_pains(data)
+    assert len(pains) == 2
+    assert pains[0]["severity"] == 5          # clamped from 9
+    assert pains[1]["category"] == "other"    # unknown category coerced
+    assert pains[1]["severity"] == 1          # unparseable severity floored
+
+
 def test_usage_recording_and_summary(conn):
     tokens = {"input_tokens": 800, "output_tokens": 200,
               "cache_write_tokens": 600, "cache_read_tokens": 0}
