@@ -3,6 +3,7 @@
 Usage:
   python -m painfinder.cli ingest-hn [--max 500]
   python -m painfinder.cli ingest-reviews --app "notion" [--pages 5] [--max-rating 3]
+  python -m painfinder.cli ingest-github --query "bookkeeping" [--max 200]
   python -m painfinder.cli extract [--limit N] [--budget-usd 5] [--heuristic]
   python -m painfinder.cli score [--heuristic]
   python -m painfinder.cli run --apps "notion,quickbooks" [--budget-usd 5] [--loop --interval-hours 12]
@@ -47,6 +48,18 @@ def _ingest_domain(conn, domain, query=None, country="us", top=10, pages=3,
     new = dbm.insert_raw_items(conn, items)
     print(f"domain {domain!r}: {len(names)} apps ({', '.join(names[:5])}"
           f"{'...' if len(names) > 5 else ''}), {len(items)} reviews, {new} new")
+
+
+def _ingest_github(conn, repo=None, query=None, state="all", max_issues=200,
+                   max_repos=10, labels=None, domain=None) -> None:
+    from .ingest import github_issues
+    target, items = github_issues.ingest(
+        repo=repo, query=query, state=state, max_issues=max_issues, max_repos=max_repos,
+        labels=labels, domain=domain,
+    )
+    new = dbm.insert_raw_items(conn, items)
+    kind = "repo" if repo else "query"
+    print(f"GitHub {kind} {target!r}: fetched {len(items)} issues, {new} new")
 
 
 def _extract_all(conn, limit=None, heuristic=False, budget_usd=None, batch=False) -> None:
@@ -145,6 +158,12 @@ def cmd_ingest_domain(args):
                    max_rating=args.max_rating)
 
 
+def cmd_ingest_github(args):
+    _ingest_github(dbm.connect(args.db), repo=args.repo, query=args.query, state=args.state,
+                   max_issues=args.max, max_repos=args.repos,
+                   labels=args.labels, domain=args.domain)
+
+
 def cmd_extract(args):
     _extract_all(dbm.connect(args.db), limit=args.limit, heuristic=args.heuristic,
                  budget_usd=args.budget_usd, batch=args.batch)
@@ -162,6 +181,7 @@ def cmd_run(args):
     """
     apps = [a.strip() for a in (args.apps or "").split(",") if a.strip()]
     domains = [d.strip() for d in (args.domains or "").split(",") if d.strip()]
+    github_repos = [r.strip() for r in (args.github_repos or "").split(",") if r.strip()]
     failed_stages = []
     while True:
         conn = dbm.connect(args.db)
@@ -187,6 +207,22 @@ def cmd_run(args):
             except Exception as e:
                 failed_stages.append(f"ingest-domain:{domain}")
                 print(f"Domain ingest for {domain!r} failed: {e}", file=sys.stderr)
+        if not args.skip_github:
+            for domain in domains:
+                try:
+                    _ingest_github(conn, query=domain, state=args.github_state,
+                                   max_issues=args.github_max, max_repos=args.github_top,
+                                   domain=domain)
+                except Exception as e:
+                    failed_stages.append(f"ingest-github-query:{domain}")
+                    print(f"GitHub search for {domain!r} failed: {e}", file=sys.stderr)
+        for repo in github_repos:
+            try:
+                _ingest_github(conn, repo=repo, state=args.github_state,
+                               max_issues=args.github_max)
+            except Exception as e:
+                failed_stages.append(f"ingest-github:{repo}")
+                print(f"GitHub ingest for {repo!r} failed: {e}", file=sys.stderr)
         try:
             _extract_all(conn, heuristic=args.heuristic, budget_usd=args.budget_usd,
                          batch=args.batch)
@@ -267,6 +303,19 @@ def main(argv=None):
     p.add_argument("--max-rating", type=int, default=3)
     p.set_defaults(func=cmd_ingest_domain)
 
+    p = sub.add_parser("ingest-github",
+                       help="Search GitHub issues by market query or repository")
+    target = p.add_mutually_exclusive_group(required=True)
+    target.add_argument("--query", help="Market-wide issue search query")
+    target.add_argument("--repo", help="Repository in owner/repo form")
+    p.add_argument("--state", choices=["open", "closed", "all"], default="all")
+    p.add_argument("--max", type=int, default=200, help="Max issues to fetch")
+    p.add_argument("--repos", type=int, default=10,
+                   help="Top repositories to sample for a market query")
+    p.add_argument("--labels", help="Comma-separated GitHub labels to require")
+    p.add_argument("--domain", help="Optional market/domain label for these issues")
+    p.set_defaults(func=cmd_ingest_github)
+
     p = sub.add_parser("extract", help="Extract pain points from ingested items (paid: Claude)")
     p.add_argument("--limit", type=int, help="Max items to process this run")
     p.add_argument("--budget-usd", type=float,
@@ -287,6 +336,15 @@ def main(argv=None):
     p.add_argument("--domains",
                    help="Comma-separated domains to sweep (top N apps each), "
                         "e.g. 'crypto exchange,bookkeeping'")
+    p.add_argument("--github-repos",
+                   help="Comma-separated GitHub repositories in owner/repo form")
+    p.add_argument("--github-state", choices=["open", "closed", "all"], default="all")
+    p.add_argument("--github-max", type=int, default=100,
+                   help="Max issues per GitHub domain search or repository")
+    p.add_argument("--github-top", type=int, default=10,
+                   help="Top GitHub repositories to sample per domain")
+    p.add_argument("--skip-github", action="store_true",
+                   help="Do not search GitHub for the configured domains")
     p.add_argument("--top", type=int, default=10, help="Apps per domain sweep")
     p.add_argument("--max", type=int, default=500, help="Max HN job posts")
     p.add_argument("--pages", type=int, default=5)

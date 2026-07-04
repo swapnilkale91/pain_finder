@@ -10,7 +10,7 @@ DEFAULT_DB_PATH = os.environ.get("PAINFINDER_DB", "data/painfinder.db")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS raw_items (
     id INTEGER PRIMARY KEY,
-    source TEXT NOT NULL,              -- 'hn_jobs' | 'app_reviews'
+    source TEXT NOT NULL,              -- source key from painfinder.sources
     external_id TEXT NOT NULL,         -- comment id / review id
     title TEXT,                        -- app name or job post first line
     author TEXT,

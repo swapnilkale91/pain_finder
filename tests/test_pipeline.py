@@ -9,7 +9,15 @@ from painfinder import extract as extract_mod
 from painfinder import score as score_mod
 from painfinder import usage as usage_mod
 from painfinder.ingest.app_reviews import parse_review_entries
+from painfinder.ingest.github_issues import (
+    build_repository_query,
+    fetch_issues,
+    normalize_repo,
+    parse_issues,
+    search_market_issues,
+)
 from painfinder.ingest.hn_jobs import extract_location, parse_comment_hits, strip_html
+from painfinder.sources import get_source, source_family
 
 # --- Fixtures mirroring real API response shapes -----------------------------
 
@@ -64,6 +72,28 @@ ITUNES_REVIEW_ENTRIES = [
     },
 ]
 
+GITHUB_ISSUES = [
+    {
+        "number": 42,
+        "title": "Sync fails after reconnecting",
+        "body": "Our team has to manually re-import every record as a workaround.",
+        "user": {"login": "octocat"},
+        "labels": [{"name": "bug"}, {"name": "sync"}],
+        "html_url": "https://github.com/acme/widget/issues/42",
+        "created_at": "2026-07-01T12:00:00Z",
+    },
+    {
+        "number": 43,
+        "title": "Update dependency",
+        "body": "Routine maintenance pull request.",
+        "user": {"login": "bot"},
+        "labels": [],
+        "html_url": "https://github.com/acme/widget/pull/43",
+        "created_at": "2026-07-01T13:00:00Z",
+        "pull_request": {"url": "https://api.github.com/repos/acme/widget/pulls/43"},
+    },
+]
+
 
 # --- Parsing ------------------------------------------------------------------
 
@@ -101,6 +131,101 @@ def test_parse_review_entries():
     assert len(critical) == 1
 
 
+def test_parse_github_issues_excludes_pull_requests():
+    items = parse_issues(GITHUB_ISSUES, "acme/widget", domain="developer tools")
+    assert len(items) == 1
+    item = items[0]
+    assert item["source"] == "github_issues"
+    assert item["external_id"] == "acme/widget#42"
+    assert item["author"] == "octocat"
+    assert item["domain"] == "developer tools"
+    assert "Labels: bug, sync" in item["text"]
+
+
+def test_github_repo_validation():
+    assert normalize_repo("acme/widget.git") == "acme/widget"
+    with pytest.raises(ValueError):
+        normalize_repo("widget")
+
+
+def test_fetch_github_issues_filters_pull_requests_and_configures_pagination():
+    class Response:
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.data
+
+    class Session:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, params, timeout):
+            self.calls.append((url, params, timeout))
+            return Response(GITHUB_ISSUES if params["page"] == 1 else [])
+
+    session = Session()
+    issues = fetch_issues(session, "acme/widget", max_issues=10)
+    assert [issue["number"] for issue in issues] == [42]
+    assert session.calls[0][1]["per_page"] == 100
+
+
+def test_source_registry_and_prompt_context():
+    source = get_source("github_issues")
+    assert source.label == "GitHub issue"
+    assert source_family("hn_jobs") == source_family("job_posts") == "job_posts"
+    content = extract_mod._build_user_content(
+        "github_issues", "acme/widget #42", "Sync fails and requires a workaround",
+    )
+    assert content.startswith("GITHUB ISSUE")
+    assert "Source guidance:" in content
+
+
+def test_github_market_search_discovers_repositories_then_fetches_issues():
+    assert build_repository_query("bookkeeping") == (
+        '"bookkeeping" in:name,description,topics archived:false fork:false'
+    )
+
+    class Response:
+        def __init__(self, data):
+            self.data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.data
+
+    class Session:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, params, timeout):
+            self.calls.append((url, params))
+            if url.endswith("/search/repositories"):
+                return Response({"items": [{
+                    "full_name": "acme/widget", "has_issues": True,
+                    "archived": False, "disabled": False,
+                }]})
+            assert url.endswith("/repos/acme/widget/issues")
+            return Response(GITHUB_ISSUES)
+
+    session = Session()
+    issues = search_market_issues(
+        session, "bookkeeping", state="open", max_issues=10, max_repos=5,
+    )
+    items = parse_issues(issues, domain="bookkeeping")
+    assert session.calls[0][1]["q"] == (
+        '"bookkeeping" in:name,description,topics archived:false fork:false'
+    )
+    assert session.calls[1][1]["state"] == "open"
+    assert items[0]["external_id"] == "acme/widget#42"
+    assert items[0]["domain"] == "bookkeeping"
+
+
 # --- Heuristic extraction -----------------------------------------------------
 
 def test_heuristic_extraction_job_post():
@@ -121,6 +246,16 @@ def test_heuristic_extraction_review():
     # the 5-star review should produce nothing
     happy = extract_mod.extract("app_reviews", "NotesApp", items[1]["text"], heuristic=True)
     assert happy == []
+
+
+def test_heuristic_extraction_github_issue():
+    items = parse_issues(GITHUB_ISSUES, "acme/widget")
+    pains = extract_mod.extract(
+        items[0]["source"], items[0]["title"], items[0]["text"], heuristic=True,
+    )
+    categories = {p["category"] for p in pains}
+    assert "reliability" in categories
+    assert "manual_process" in categories
 
 
 # --- DB + scoring end-to-end --------------------------------------------------
@@ -227,3 +362,17 @@ def test_score_rewards_corroboration_and_severity():
     mild = score_mod.score_theme([{**base, "severity": 1}])
     severe = score_mod.score_theme([{**base, "severity": 5}])
     assert severe["score"] > mild["score"]
+
+
+def test_score_does_not_double_count_same_source_family():
+    base = {"id": 1, "source": "hn_jobs", "category": "x", "severity": 3,
+            "description": "d"}
+    same_family = score_mod.score_theme([
+        base, {**base, "id": 2, "source": "job_posts"},
+    ])
+    independent = score_mod.score_theme([
+        base, {**base, "id": 2, "source": "github_issues"},
+    ])
+    assert same_family["source_count"] == 1
+    assert independent["source_count"] == 2
+    assert independent["score"] > same_family["score"]

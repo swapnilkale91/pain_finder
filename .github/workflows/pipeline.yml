@@ -33,7 +33,13 @@ jobs:
       - name: Run pipeline (ingest -> extract -> score)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python -m painfinder.cli run --apps "$REVIEW_APPS" --domains "$DOMAINS" --budget-usd "$BUDGET_USD" --batch
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python -m painfinder.cli run
+          --apps "$REVIEW_APPS"
+          --domains "$DOMAINS"
+          --budget-usd "$BUDGET_USD"
+          --batch
 
       - name: Commit updated database
         # always() — extraction spend must be preserved even if a later

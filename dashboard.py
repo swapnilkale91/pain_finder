@@ -9,6 +9,7 @@ import streamlit as st
 
 from painfinder import db as dbm
 from painfinder import usage as usage_mod
+from painfinder.sources import get_source
 
 st.set_page_config(page_title="pain_finder", page_icon="🔍", layout="wide")
 
@@ -20,14 +21,13 @@ spend = usage_mod.summary(conn)
 
 st.title("pain_finder")
 st.caption(
-    "Pain themes mined from job boards (what companies pay people to do manually) and "
-    "app reviews (what drives users away from incumbents) — ranked by frequency, severity, "
-    "and cross-source corroboration."
+    "Pain themes mined from market evidence—job posts, product reviews, and developer "
+    "issues—ranked by frequency, severity, and cross-source corroboration."
 )
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Items collected", f"{stats['raw_items']:,}",
-          help="Job posts + reviews ingested (deduplicated). Ingestion is free.")
+          help="Source documents ingested and deduplicated.")
 m2.metric("Pain points", f"{stats['pains']:,}",
           help="Structured pains extracted from the raw items")
 m3.metric("Themes", stats["themes"],
@@ -46,10 +46,16 @@ st.divider()
 
 domain_options = [r[0] for r in conn.execute(
     "SELECT DISTINCT domain FROM themes WHERE domain IS NOT NULL ORDER BY domain")]
+source_options = [r[0] for r in conn.execute(
+    "SELECT DISTINCT source FROM raw_items ORDER BY source")]
 
 with st.sidebar:
     st.header("Filters")
     query = st.text_input("Search themes", placeholder="billing, sync, reconciliation…")
+    selected_sources = st.multiselect(
+        "Sources", source_options, format_func=lambda key: get_source(key).label,
+        help="Only show themes with evidence from these sources",
+    )
     selected_domains = st.multiselect("Domain", domain_options,
                                       help="Market each theme was assigned at clustering")
     loc_query = st.text_input("Location contains", placeholder="remote, US, berlin…",
@@ -58,7 +64,7 @@ with st.sidebar:
     min_severity = st.slider("Min. avg severity", 1.0, 5.0, 1.0, 0.5)
     only_corroborated = st.toggle(
         "Corroborated only",
-        help="Only themes seen in BOTH job posts and app reviews — the strongest signal",
+        help="Only themes supported by at least two independent source families",
     )
 
     st.divider()
@@ -96,6 +102,8 @@ def evidence_rows(theme_id: int) -> list:
     ).fetchall()
     if loc_query:
         rows = [r for r in rows if loc_query.lower() in (r["location"] or "").lower()]
+    if selected_sources:
+        rows = [r for r in rows if r["source"] in selected_sources]
     return rows
 
 
@@ -111,7 +119,7 @@ for rank, t in enumerate(themes, 1):
     if selected_domains and t["domain"] not in selected_domains:
         continue
     rows = evidence_rows(t["id"])
-    if loc_query and not rows:
+    if (loc_query or selected_sources) and not rows:
         continue
     shown += 1
 
@@ -131,11 +139,11 @@ for rank, t in enumerate(themes, 1):
         with badge:
             st.metric("Score", f"{t['score']:.1f}")
 
-        label = f"Evidence ({len(rows)}{' matching' if loc_query else ''})"
+        label = f"Evidence ({len(rows)}{' matching' if (loc_query or selected_sources) else ''})"
         with st.expander(label):
             for p in rows:
-                source_label = "💼 job post" if p["source"] == "hn_jobs" else "⭐ review"
-                meta = [source_label, "🔥" * (p["severity"] or 1)]
+                source = get_source(p["source"])
+                meta = [f"{source.icon} {source.label}", "🔥" * (p["severity"] or 1)]
                 if p["location"]:
                     meta.append(f"📍 {p['location']}")
                 tools = ", ".join(json.loads(p["tools_mentioned"] or "[]"))

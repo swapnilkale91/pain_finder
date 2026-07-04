@@ -1,8 +1,9 @@
 # pain_finder 🔍
 
-Mine **job boards** and **app reviews** for product-market-fit signals: recurring pains that
-companies pay salaries to work around, and complaints that drive users away from incumbent
-products. Rank the resulting themes so you can see which problems are worth building for.
+Mine market evidence for product-market-fit signals: recurring pains that companies pay salaries
+to work around, complaints that drive users away from incumbent products, and developer issues
+that expose broken or missing workflows. Rank the resulting themes so you can see which problems
+are worth building for.
 
 **What each source tells you:**
 
@@ -11,6 +12,8 @@ products. Rank the resulting themes so you can see which problems are worth buil
   recurring pain with no good product solving it.
 - **App reviews** (App Store) are a *dissatisfaction* signal — clustering critical reviews of
   incumbents by complaint theme shows you wedges into an existing market.
+- **GitHub Issues** are a *developer pain* signal — bugs, feature requests, and documented
+  workarounds expose gaps in technical products and integrations.
 
 > Honest caveat: this finds *problems worth building for*. True PMF measurement needs your own
 > product's retention/usage data — no external dataset can give you that.
@@ -18,7 +21,7 @@ products. Rank the resulting themes so you can see which problems are worth buil
 ## Pipeline
 
 ```
-ingest (HN Algolia API, App Store RSS — both free & keyless)
+ingest (HN Algolia API, App Store RSS, GitHub REST API)
   → extract (Claude turns each item into structured pain points)
   → score (Claude clusters pains into themes; deterministic composite score)
   → dashboard (Streamlit: ranked themes with raw evidence behind each)
@@ -34,9 +37,10 @@ pip install -r requirements.txt
 export ANTHROPIC_API_KEY=sk-ant-...   # for extraction & clustering
 ```
 
-No API keys are needed for ingestion — the HN Algolia API and Apple's review RSS feeds are
-public. Without an Anthropic key you can still run the whole pipeline with `--heuristic`
-(keyword rules instead of Claude — much lower quality, useful for smoke-testing).
+No API keys are needed for public-source ingestion. Set `GITHUB_TOKEN` for higher GitHub API
+limits or authorized private repositories. Without an Anthropic key you can still run the whole
+pipeline with `--heuristic` (keyword rules instead of Claude—much lower quality, useful for
+smoke-testing).
 
 ## Usage
 
@@ -51,6 +55,12 @@ python -m painfinder.cli ingest-reviews --app "notion"
 python -m painfinder.cli ingest-domain "crypto exchange"
 python -m painfinder.cli ingest-domain "bookkeeping" --top 15
 python -m painfinder.cli ingest-domain "crypto on/off-ramp" --query "buy crypto"
+
+# 2c. Discover relevant repositories, then sample their issues (pull requests are excluded)
+python -m painfinder.cli ingest-github --query "bookkeeping" --domain "bookkeeping" --max 200
+
+# Repository-specific collection is also available
+python -m painfinder.cli ingest-github --repo "owner/repo" --labels "bug,performance" --domain "observability"
 
 # Location: --country pulls a different App Store storefront (tagged on every item);
 # job posts get their location parsed from the "Company | Role | Location" first line
@@ -78,6 +88,9 @@ items, re-score:
 # One shot, with a $5 extraction spend cap (the default)
 python -m painfinder.cli run --apps "notion,quickbooks" --budget-usd 5
 
+# Every --domains entry also drives GitHub repository discovery automatically
+python -m painfinder.cli run --domains "crypto exchange,bookkeeping" --batch
+
 # Keep it running: re-check sources every 12 hours
 python -m painfinder.cli run --apps "notion,quickbooks" --loop --interval-hours 12
 ```
@@ -97,7 +110,8 @@ full pipeline **daily** and commits the updated SQLite DB back to the repo. To e
 
 1. **Add your API key as a secret:** repo → Settings → Secrets and variables → Actions →
    New repository secret → name `ANTHROPIC_API_KEY`.
-2. **Edit the app list / budget** at the top of the workflow file (`REVIEW_APPS`, `BUDGET_USD`).
+2. **Edit the source lists / budget** at the top of the workflow file (`REVIEW_APPS`,
+   `DOMAINS`, and `BUDGET_USD`). Each domain drives both App Store and GitHub collection.
 3. Trigger the first run manually from the **Actions** tab (workflow_dispatch) to backfill.
    After that it fires on the daily cron. Note: scheduled workflows only run on the repo's
    **default branch**, so merge this branch first if it isn't the default.
@@ -111,8 +125,8 @@ Python process with a SQLite file, no other infrastructure.
 
 ## Costs
 
-**Ingestion is free** — the HN Algolia API and Apple's review feeds are public and the
-ingest stage makes no LLM calls. The paid stages are **extract** and **score** (Claude API),
+**Ingestion is free**—the HN Algolia API, Apple's review feeds, and GitHub's public Issues API are
+public, and the ingest stage makes no LLM calls. The paid stages are **extract** and **score** (Claude API),
 and each stage uses the cheapest model that's good enough:
 
 | Stage | Model | Why |
@@ -143,13 +157,17 @@ Each theme's score = `log2(1 + pain_count) × avg_severity × (1 + 0.25 × extra
 - **Frequency** is log-scaled so one giant cluster doesn't drown the rest.
 - **Severity** (1–5) is judged at extraction time — 5 means a budgeted, hair-on-fire problem
   (a salaried hire, or churn-causing data loss).
-- **Corroboration** boosts themes that show up in *both* job posts and reviews — a pain that
-  companies hire for *and* users complain about is the strongest signal here.
+- **Corroboration** boosts themes that show up across independent source families—for example,
+  a pain that companies hire for, users complain about, and developers report in issues.
 
 The dashboard always shows the raw quotes and links behind each score, so you can validate
 rather than trust a number.
 
 ## Extending
+
+The next-version source set is Hacker News discussions, Reddit, app reviews, GitHub Issues,
+job posts, and G2/Capterra reviews. GitHub Issues is now supported; the source registry already
+defines the semantics and display metadata that future collectors plug into.
 
 - **More sources:** add a module under `painfinder/ingest/` that returns
   `{source, external_id, title, text, ...}` dicts — the rest of the pipeline is source-agnostic.

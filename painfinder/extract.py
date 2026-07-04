@@ -12,6 +12,8 @@ import time
 
 from pydantic import BaseModel, Field
 
+from .sources import get_source, source_family
+
 # Extraction is high-volume, per-item classification — the cheap model tier
 # handles it well. Clustering/insight stays on Opus (see score.py).
 EXTRACT_MODEL = os.environ.get("PAINFINDER_EXTRACT_MODEL", "claude-haiku-4-5")
@@ -35,22 +37,18 @@ class ExtractionResult(BaseModel):
     pains: list[PainPoint] = Field(description="Empty if the text contains no genuine pain signal")
 
 
-SYSTEM_PROMPT = """You are a product-research analyst mining text for product-market-fit signals.
+SYSTEM_PROMPT = """You are a product-research analyst mining source documents for
+product-market-fit signals.
 
-You will receive either a JOB POST (from Hacker News "Who is hiring?") or an APP REVIEW.
+Follow the source-specific guidance included with each document. Extract only concrete pain:
+- recurring manual work or costly workarounds
+- broken or unreliable workflows
+- missing capabilities and tooling or integration gaps
+- pricing, support, compliance, or usability problems with meaningful consequences
 
-For a JOB POST, extract pains implied by what the company is hiring a human to do:
-- Recurring manual work described in the role (reconciling, copying, triaging, cleaning data)
-- Tooling gaps ("build internal tools for X", "replace our spreadsheet-based Y")
-- Integration pain (keeping systems in sync, stitching APIs together)
-A generic engineering role with no specific recurring task is NOT a pain — return no pains.
-Rate severity higher when the pain is the role's primary purpose (they're paying a salary for it).
-
-For an APP REVIEW, extract concrete complaints about the product:
-- What broke, what's missing, what workaround the reviewer uses
-- Pricing/paywall frustration, data loss, sync failures
-Praise, vague negativity ("app bad"), or star ratings alone are NOT pains — return no pains.
-Rate severity higher when the reviewer describes churning, losing money/data, or a paid workaround.
+Praise, vague negativity, feature announcements, administrative text, and generic implementation
+work without a user problem are NOT pains. Return no pains when the evidence is weak. Rate severity
+higher when people lose time, money, or data; churn; pay for a workaround; or fund a salaried role.
 
 Phrase each pain description generically so similar pains from different sources cluster together
 (e.g. "Teams manually reconcile billing data between payment and accounting systems" rather than
@@ -70,11 +68,7 @@ def extract_with_claude(source: str, title: str | None, text: str,
     after the API call so the caller can account for tokens/cost.
     """
     client = _client()
-    kind = "JOB POST" if source == "hn_jobs" else "APP REVIEW"
-    user_content = f"{kind}"
-    if title:
-        user_content += f" ({title})"
-    user_content += f":\n\n{text[:6000]}"
+    user_content = _build_user_content(source, title, text)
 
     response = client.messages.parse(
         model=EXTRACT_MODEL,
@@ -124,9 +118,10 @@ EXTRACT_SCHEMA = {
 
 
 def _build_user_content(source: str, title: str | None, text: str) -> str:
-    kind = "JOB POST" if source == "hn_jobs" else "APP REVIEW"
-    content = kind + (f" ({title})" if title else "")
-    return content + f":\n\n{text[:6000]}"
+    definition = get_source(source)
+    content = definition.document_type + (f" ({title})" if title else "")
+    return (f"{content}\nSource guidance: {definition.extraction_guidance}"
+            f"\n\n{text[:6000]}")
 
 
 def _normalize_pains(data: dict) -> list[dict]:
@@ -237,10 +232,25 @@ _REVIEW_PATTERNS = [
     (r"\b(support (never|didn'?t)|no response from support)\b", "support", 3),
 ]
 
+_ISSUE_PATTERNS = [
+    (r"\b(crash\w*|freez\w*|panic\w*|data loss|corrupt\w*)\b", "reliability", 4),
+    (r"\b(bug|broken|regression|doesn'?t work|fails? to)\b", "reliability", 3),
+    (r"\b(workaround|manually|manual process)\b", "manual_process", 3),
+    (r"\b(feature request|missing|no way to|can'?t|cannot)\b", "tooling_gap", 2),
+    (r"\b(integrat\w+|sync\w*|API)\b", "data_integration", 3),
+    (r"\b(slow|latency|performance|takes forever)\b", "performance", 2),
+]
+
 
 def extract_heuristic(source: str, title: str | None, text: str) -> list[dict]:
     """Cheap keyword extraction — a rough stand-in for the Claude path."""
-    patterns = _JOB_PATTERNS if source == "hn_jobs" else _REVIEW_PATTERNS
+    family = source_family(source)
+    if family == "job_posts":
+        patterns = _JOB_PATTERNS
+    elif family == "github_issues":
+        patterns = _ISSUE_PATTERNS
+    else:
+        patterns = _REVIEW_PATTERNS
     pains, seen_categories = [], set()
     lowered = text.lower()
     for pattern, category, severity in patterns:

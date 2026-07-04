@@ -10,6 +10,8 @@ from collections import defaultdict
 
 from pydantic import BaseModel, Field
 
+from .sources import source_family
+
 # Clustering/insight is the judgment-heavy stage — keep it on the big model.
 MODEL = os.environ.get("PAINFINDER_CLUSTER_MODEL", "claude-opus-4-8")
 
@@ -26,8 +28,8 @@ class ClusterResult(BaseModel):
 
 
 CLUSTER_SYSTEM = """You are a product-research analyst. You will receive a numbered list of
-pain points mined from job boards and app reviews. Group them into themes where the underlying
-problem is the same even if the wording differs. Guidelines:
+pain points mined from independent market-evidence sources. Group them into themes where the
+underlying problem is the same even if the wording differs. Guidelines:
 - A theme should be specific enough to imagine one product solving it.
 - Don't force everything into a theme: leave truly one-off pains out.
 - Each pain belongs to at most one theme.
@@ -140,7 +142,9 @@ def score_theme(member_pains: list[dict]) -> dict:
     """Composite score: how often the pain appears, how badly it hurts,
     and whether independent sources corroborate it."""
     n = len(member_pains)
-    sources = {p["source"] for p in member_pains}
+    # Different collectors for the same evidence family (for example HN and
+    # Greenhouse job posts) are not independent corroboration.
+    sources = {source_family(p["source"]) for p in member_pains}
     avg_severity = sum(p["severity"] or 1 for p in member_pains) / n
     # log-scaled frequency so one giant cluster doesn't drown everything,
     # severity weighted linearly, +25% per corroborating extra source type
