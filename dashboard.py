@@ -4,6 +4,8 @@ Run:  streamlit run dashboard.py
 """
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 import streamlit as st
@@ -14,7 +16,42 @@ from painfinder.sources import get_source
 
 st.set_page_config(page_title="pain_finder", page_icon="🔍", layout="wide")
 
-conn = dbm.connect()
+# On Streamlit Community Cloud the repo clone only refreshes on redeploys,
+# which don't reliably follow the pipeline's bot commits — so the deployed
+# app can serve stale data. Setting PAINFINDER_DB_URL to the raw-GitHub URL
+# of the DB makes the dashboard fetch fresh data itself, every 10 minutes,
+# independent of redeploys.
+def _configured_db_url() -> str:
+    if os.environ.get("PAINFINDER_DB_URL"):
+        return os.environ["PAINFINDER_DB_URL"]
+    try:  # st.secrets raises if no secrets.toml exists at all
+        return st.secrets.get("PAINFINDER_DB_URL", "")
+    except Exception:
+        return ""
+
+
+DB_URL = _configured_db_url()
+
+
+@st.cache_resource(ttl=600, show_spinner="Fetching latest data…")
+def _download_db(url: str) -> str:
+    import requests
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    f = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    f.write(r.content)
+    f.close()
+    return f.name
+
+
+if DB_URL:
+    try:
+        conn = dbm.connect(_download_db(DB_URL))
+    except Exception as e:
+        st.warning(f"Could not fetch remote DB ({e}); falling back to the bundled copy.")
+        conn = dbm.connect()
+else:
+    conn = dbm.connect()
 stats = dbm.stats(conn)
 spend = usage_mod.summary(conn)
 
