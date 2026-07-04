@@ -152,6 +152,20 @@ def score_theme(member_pains: list[dict]) -> dict:
     }
 
 
+def _dedupe_cluster_indices(clusters: list[dict]) -> list[dict]:
+    """Enforce 'each pain belongs to at most one theme' regardless of what the
+    model returned: drop duplicates within a cluster and across clusters
+    (first cluster wins). Empty clusters are removed."""
+    seen: set[int] = set()
+    result = []
+    for c in clusters:
+        indices = [i for i in dict.fromkeys(c["indices"]) if i not in seen]
+        seen.update(indices)
+        if indices:
+            result.append({**c, "indices": indices})
+    return result
+
+
 def build_themes(pains: list[dict], heuristic: bool = False, usage_sink=None) -> list[dict]:
     """pains must each carry: id, source, category, severity, description.
     Returns theme dicts ready for db.replace_themes()."""
@@ -159,6 +173,7 @@ def build_themes(pains: list[dict], heuristic: bool = False, usage_sink=None) ->
         return []
     clusters = (cluster_heuristic(pains) if heuristic
                 else cluster_with_claude(pains, usage_sink=usage_sink))
+    clusters = _dedupe_cluster_indices(clusters)
     themes = []
     for c in clusters:
         members = [pains[i] for i in c["indices"]]

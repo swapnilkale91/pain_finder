@@ -158,7 +158,7 @@ def replace_themes(conn: sqlite3.Connection, themes: list[dict]) -> None:
         )
         theme_id = cur.lastrowid
         conn.executemany(
-            "INSERT INTO theme_pains (theme_id, pain_id) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO theme_pains (theme_id, pain_id) VALUES (?, ?)",
             [(theme_id, pid) for pid in t["pain_ids"]],
         )
     conn.commit()

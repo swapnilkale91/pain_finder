@@ -5,6 +5,8 @@ Free, unauthenticated endpoints:
   https://itunes.apple.com/{cc}/rss/customerreviews/...        (fetch reviews)
 """
 
+import time
+
 import requests
 
 USER_AGENT = "pain_finder/0.1 (PMF research tool)"
@@ -126,7 +128,13 @@ def ingest_domain(domain: str, query: str | None = None, country: str = "us",
         raise RuntimeError(f"No App Store apps found for {query or domain!r}")
     all_items, names = [], []
     for app in apps:
-        entries = fetch_reviews(session, app["id"], country, pages)
+        # One flaky app feed must not abort the whole domain sweep; Apple's
+        # review RSS also rate-limits bursts, so pace the requests.
+        try:
+            entries = fetch_reviews(session, app["id"], country, pages)
+        except requests.RequestException as e:
+            print(f"  {app['name']}: review feed failed ({e}); skipping")
+            continue
         items = parse_review_entries(entries, app["name"])
         if max_rating is not None:
             items = [i for i in items if i["rating"] <= max_rating]
@@ -135,4 +143,5 @@ def ingest_domain(domain: str, query: str | None = None, country: str = "us",
             i["location"] = country.upper()
         all_items.extend(items)
         names.append(app["name"])
+        time.sleep(1)
     return names, all_items

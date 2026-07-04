@@ -193,11 +193,20 @@ def cmd_run(args):
         except Exception as e:
             failed_stages.append("extract")
             print(f"Extract failed: {e}", file=sys.stderr)
-        try:
-            _score_all(conn, heuristic=args.heuristic)
-        except Exception as e:
-            failed_stages.append("score")
-            print(f"Score failed: {e}", file=sys.stderr)
+        # Re-clustering runs over ALL pains on the big model (~$1/run at scale),
+        # so skip it when no pain is waiting for a theme assignment.
+        unclustered = conn.execute(
+            "SELECT COUNT(*) FROM pains WHERE id NOT IN (SELECT pain_id FROM theme_pains)"
+        ).fetchone()[0]
+        has_themes = conn.execute("SELECT COUNT(*) FROM themes").fetchone()[0] > 0
+        if unclustered == 0 and has_themes:
+            print("Score: skipped (no new pains since last clustering).")
+        else:
+            try:
+                _score_all(conn, heuristic=args.heuristic)
+            except Exception as e:
+                failed_stages.append("score")
+                print(f"Score failed: {e}", file=sys.stderr)
         s = usage_mod.summary(conn)["total"]
         print(f"Cumulative LLM spend: ${s['cost_usd']:.2f} "
               f"({s['input_tokens']:,} in / {s['output_tokens']:,} out tokens)")

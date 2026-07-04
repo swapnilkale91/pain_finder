@@ -206,6 +206,18 @@ def test_usage_recording_and_summary(conn):
     assert s["total"]["input_tokens"] == 800 + 600 + 1000
 
 
+def test_cluster_index_dedupe():
+    clusters = [
+        {"name": "A", "description": "", "domain": "x", "indices": [0, 1, 1, 2]},
+        {"name": "B", "description": "", "domain": "x", "indices": [2, 3]},   # 2 already taken
+        {"name": "C", "description": "", "domain": "x", "indices": [0, 1]},   # all taken -> dropped
+    ]
+    deduped = score_mod._dedupe_cluster_indices(clusters)
+    assert [c["name"] for c in deduped] == ["A", "B"]
+    assert deduped[0]["indices"] == [0, 1, 2]
+    assert deduped[1]["indices"] == [3]
+
+
 def test_score_rewards_corroboration_and_severity():
     base = {"id": 1, "source": "hn_jobs", "category": "x", "severity": 3, "description": "d"}
     one_source = score_mod.score_theme([base, {**base, "id": 2}])
