@@ -1,20 +1,20 @@
 # pain_finder digest — 2026-07-05
 
-**4,625** items · **6,740** pains · **78** themes · lifetime LLM spend **$11.51**
+**4,870** items · **7,091** pains · **57** themes · lifetime LLM spend **$14.51**
 
 ## Top 10 themes
 
 | # | Theme | Domain | Score | Δ | Pains | Corroborated |
 |---|---|---|---|---|---|---|
-| 1 | Crypto exchange unresponsive/inaccessible customer support | crypto exchange | 35.8 | → | 140 | ✅ |
-| 2 | Crypto account compromise, theft, and insider fraud with no recourse | crypto exchange | 34.3 | → | 49 | ✅ |
-| 3 | Crypto exchange withdrawal blocking and trapped funds | crypto exchange | 28.4 | → | 65 |  |
-| 4 | Payment processor holds and freezes on small-business funds | bookkeeping | 26.4 | → | 43 |  |
-| 5 | Bookkeeping customer support unresponsive and no phone access | bookkeeping | 26.4 | → | 109 |  |
-| 6 | Crypto app crashes, freezes, and instability | crypto exchange | 25.5 | → | 70 |  |
-| 7 | Crypto exchange account freezes and lockouts without explanation | crypto exchange | 25.1 | → | 35 |  |
-| 8 | Note-taking mobile/tablet app instability and crashes | note-taking app | 24.4 | → | 69 |  |
-| 9 | Manual transaction entry and categorization burden | bookkeeping | 23.2 | → | 17 | ✅ |
-| 10 | Accounting app crashes and freezes during core tasks | bookkeeping | 22.3 | → | 31 |  |
+| 1 | Crypto wallet fund theft and account compromise | crypto exchange | 52.0 | → | 171 | ✅ |
+| 2 | Crypto app crashes, login failures, and instability | crypto exchange | 41.7 | → | 342 | ✅ |
+| 3 | Crypto exchange customer support unresponsiveness | crypto exchange | 38.2 | → | 550 |  |
+| 4 | Scam tokens, rug pulls, and platform-facilitated fraud | crypto exchange | 38.1 | → | 142 | ✅ |
+| 5 | Crypto hidden fees, price spreads, and unfavorable execution | crypto exchange | 37.8 | → | 299 | ✅ |
+| 6 | Stop-loss, liquidation, and order execution failures | crypto exchange | 36.1 | → | 76 | ✅ |
+| 7 | Crypto withdrawal blocking and trapped funds | crypto exchange | 33.4 | → | 119 |  |
+| 8 | Bookkeeping app crashes and instability after updates | bookkeeping | 32.6 | → | 230 |  |
+| 9 | Receipt scanning and capture failures | bookkeeping | 32.6 | → | 74 | ✅ |
+| 10 | Crypto deposits not credited or delayed | crypto exchange | 31.2 | → | 186 |  |
 
 *First snapshot — trend deltas will appear from the next run.*
