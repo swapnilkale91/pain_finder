@@ -65,6 +65,11 @@ CREATE TABLE IF NOT EXISTS theme_history (
     avg_severity REAL
 );
 
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS briefs (
     id INTEGER PRIMARY KEY,
     theme_name TEXT NOT NULL,
@@ -218,6 +223,16 @@ def theme_score_history(conn: sqlite3.Connection, name: str) -> list[sqlite3.Row
     return conn.execute(
         """SELECT snapshot_at, score FROM theme_history
            WHERE name = ? ORDER BY snapshot_at""", (name,)).fetchall()
+
+
+def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
+
+
+def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
 
 
 def save_brief(conn: sqlite3.Connection, theme_name: str, domain: str | None,

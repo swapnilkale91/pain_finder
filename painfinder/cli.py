@@ -145,6 +145,11 @@ def _score_all(conn, heuristic=False) -> None:
     pains = [dict(r) for r in rows]
     themes = score_mod.build_themes(pains, heuristic=heuristic, usage_sink=sink)
     dbm.replace_themes(conn, themes)
+    # High-water mark: lets `run` skip the expensive re-cluster when no pain
+    # has been added since. (Counting unclustered pains doesn't work — the
+    # clusterer intentionally leaves one-off pains out of themes.)
+    max_id = conn.execute("SELECT COALESCE(MAX(id), 0) FROM pains").fetchone()[0]
+    dbm.set_meta(conn, "last_scored_max_pain_id", str(max_id))
     print(f"Built {len(themes)} themes" +
           (f" (${spent:.4f} spent)" if not heuristic else "") + ":\n")
     for t in themes:
@@ -264,13 +269,13 @@ def cmd_run(args):
         except Exception as e:
             failed_stages.append("extract")
             print(f"Extract failed: {e}", file=sys.stderr)
-        # Re-clustering runs over ALL pains on the big model (~$1/run at scale),
-        # so skip it when no pain is waiting for a theme assignment.
-        unclustered = conn.execute(
-            "SELECT COUNT(*) FROM pains WHERE id NOT IN (SELECT pain_id FROM theme_pains)"
-        ).fetchone()[0]
+        # Re-clustering runs over ALL pains on the big model (several $ at
+        # scale), so skip it when nothing new was extracted since the last
+        # scoring run.
+        max_pain = conn.execute("SELECT COALESCE(MAX(id), 0) FROM pains").fetchone()[0]
+        last_scored = int(dbm.get_meta(conn, "last_scored_max_pain_id") or 0)
         has_themes = conn.execute("SELECT COUNT(*) FROM themes").fetchone()[0] > 0
-        if unclustered == 0 and has_themes:
+        if has_themes and max_pain <= last_scored:
             print("Score: skipped (no new pains since last clustering).")
         else:
             try:

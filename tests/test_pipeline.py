@@ -486,6 +486,15 @@ def test_theme_history_and_digest(conn):
     assert "merged or renamed" in md  # Beta disappeared
 
 
+def test_meta_helpers(conn):
+    assert dbm.get_meta(conn, "missing") is None
+    assert dbm.get_meta(conn, "missing", "0") == "0"
+    dbm.set_meta(conn, "last_scored_max_pain_id", "42")
+    assert dbm.get_meta(conn, "last_scored_max_pain_id") == "42"
+    dbm.set_meta(conn, "last_scored_max_pain_id", "99")   # upsert
+    assert dbm.get_meta(conn, "last_scored_max_pain_id") == "99"
+
+
 def test_coarse_location():
     from painfinder.geo import coarse_location
     assert coarse_location("US") == "United States"
