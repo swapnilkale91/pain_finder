@@ -12,6 +12,7 @@ import streamlit as st
 
 from painfinder import db as dbm
 from painfinder import usage as usage_mod
+from painfinder.geo import coarse_location
 from painfinder.sources import get_source
 
 st.set_page_config(page_title="pain_finder", page_icon="🔍", layout="wide")
@@ -88,7 +89,6 @@ st.divider()
 # --- Breakdown explorer ---------------------------------------------------------
 
 with st.expander("📊 Breakdown explorer — group pains by geography, domain, and more"):
-    from painfinder.geo import coarse_location
 
     _DIMS = {
         "Domain": lambda r: r["domain"] or "(untagged)",
@@ -144,9 +144,14 @@ with st.sidebar:
     )
     selected_domains = st.multiselect("Domain", domain_options,
                                       help="Market each theme was assigned at clustering")
-    loc_query = st.text_input("Location contains", placeholder="remote, US, berlin…",
-                              help="Matches review store country and job-post locations; "
-                                   "themes with no matching evidence are hidden")
+    geo_options = sorted({
+        coarse_location(r[0]) for r in conn.execute("SELECT DISTINCT location FROM raw_items")
+    })
+    selected_geos = st.multiselect(
+        "Geography", geo_options,
+        help="Coarse-bucketed from review storefronts and job-post locations; "
+             "themes with no matching evidence are hidden",
+    )
     min_severity = st.slider("Min. avg severity", 1.0, 5.0, 1.0, 0.5)
     only_corroborated = st.toggle(
         "Corroborated only",
@@ -187,8 +192,8 @@ def evidence_rows(theme_id: int) -> list:
            ORDER BY pains.severity DESC""",
         (theme_id,),
     ).fetchall()
-    if loc_query:
-        rows = [r for r in rows if loc_query.lower() in (r["location"] or "").lower()]
+    if selected_geos:
+        rows = [r for r in rows if coarse_location(r["location"]) in selected_geos]
     if selected_sources:
         rows = [r for r in rows if r["source"] in selected_sources]
     return rows
@@ -206,7 +211,7 @@ for rank, t in enumerate(themes, 1):
     if selected_domains and t["domain"] not in selected_domains:
         continue
     rows = evidence_rows(t["id"])
-    if (loc_query or selected_sources) and not rows:
+    if (selected_geos or selected_sources) and not rows:
         continue
     shown += 1
 
@@ -248,7 +253,7 @@ for rank, t in enumerate(themes, 1):
                 )
                 st.line_chart(df, height=160)
 
-        label = f"Evidence ({len(rows)}{' matching' if (loc_query or selected_sources) else ''})"
+        label = f"Evidence ({len(rows)}{' matching' if (selected_geos or selected_sources) else ''})"
         with st.expander(label):
             for p in rows:
                 source = get_source(p["source"])
