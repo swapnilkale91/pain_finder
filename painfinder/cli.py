@@ -150,6 +150,7 @@ def _score_all(conn, heuristic=False) -> None:
     # clusterer intentionally leaves one-off pains out of themes.)
     max_id = conn.execute("SELECT COALESCE(MAX(id), 0) FROM pains").fetchone()[0]
     dbm.set_meta(conn, "last_scored_max_pain_id", str(max_id))
+    dbm.set_meta(conn, "last_scored_at", dbm.now_iso())
     print(f"Built {len(themes)} themes" +
           (f" (${spent:.4f} spent)" if not heuristic else "") + ":\n")
     for t in themes:
@@ -275,8 +276,20 @@ def cmd_run(args):
         max_pain = conn.execute("SELECT COALESCE(MAX(id), 0) FROM pains").fetchone()[0]
         last_scored = int(dbm.get_meta(conn, "last_scored_max_pain_id") or 0)
         has_themes = conn.execute("SELECT COUNT(*) FROM themes").fetchone()[0] > 0
+        # Budget guard: with several pipeline runs per day, re-clustering on
+        # every trickle of new reviews would multiply the day's biggest cost.
+        # Cluster at most ~once a day; extraction still runs every time.
+        recently_scored = False
+        last_scored_at = dbm.get_meta(conn, "last_scored_at")
+        if last_scored_at:
+            from datetime import datetime, timedelta, timezone
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(last_scored_at)
+            recently_scored = age < timedelta(hours=20)
         if has_themes and max_pain <= last_scored:
             print("Score: skipped (no new pains since last clustering).")
+        elif has_themes and recently_scored:
+            print("Score: deferred (clustered within the last 20h; new pains "
+                  "will be themed on the next daily pass).")
         else:
             try:
                 _score_all(conn, heuristic=args.heuristic)
