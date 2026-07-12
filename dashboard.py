@@ -173,6 +173,16 @@ with st.sidebar:
 themes = conn.execute("SELECT * FROM themes ORDER BY score DESC").fetchall()
 _, previous_snapshot = dbm.last_two_snapshots(conn)
 
+ranking = st.radio(
+    "Ranking", ["⚖️ Balanced by domain", "🌐 Global score"], horizontal=True,
+    help="Balanced interleaves the best themes of every domain (1st of each, then "
+         "2nd of each…) so a high-volume domain can't flood the board. Global is "
+         "the raw score order.",
+)
+if ranking.endswith("Balanced by domain"):
+    from painfinder.score import interleave_by_domain
+    themes = interleave_by_domain(themes)
+
 if not themes:
     st.info(
         "No themes yet. Run the pipeline first:\n\n"

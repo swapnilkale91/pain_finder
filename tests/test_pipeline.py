@@ -545,6 +545,22 @@ def test_brief_evidence_and_storage(conn):
     assert dbm.latest_brief(conn, "No such theme") is None
 
 
+def test_interleave_by_domain():
+    themes = [  # sorted by score desc, crypto flooding the top
+        {"domain": "crypto", "score": 50}, {"domain": "crypto", "score": 45},
+        {"domain": "crypto", "score": 40}, {"domain": "books", "score": 30},
+        {"domain": None, "score": 20}, {"domain": "books", "score": 10},
+    ]
+    out = score_mod.interleave_by_domain(themes)
+    # Round 1: best of each domain (ordered by that domain's top score),
+    # round 2: second-best of each, etc.
+    assert [(t["domain"], t["score"]) for t in out] == [
+        ("crypto", 50), ("books", 30), (None, 20),
+        ("crypto", 45), ("books", 10), ("crypto", 40),
+    ]
+    assert len(out) == len(themes)
+
+
 def test_cluster_index_dedupe():
     clusters = [
         {"name": "A", "description": "", "domain": "x", "indices": [0, 1, 1, 2]},

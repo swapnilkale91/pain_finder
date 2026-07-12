@@ -156,6 +156,26 @@ def score_theme(member_pains: list[dict]) -> dict:
     }
 
 
+def interleave_by_domain(themes: list) -> list:
+    """Round-robin themes across domains: best of each domain first, then the
+    second-best of each, and so on. Input must be sorted by score descending.
+
+    This keeps one high-volume domain (e.g. crypto, with its flood of angry
+    reviews) from monopolizing the top of the leaderboard.
+    """
+    from collections import defaultdict, deque
+    buckets: dict[str, deque] = defaultdict(deque)
+    for t in themes:
+        buckets[t["domain"] or "(untagged)"].append(t)
+    domain_order = sorted(buckets, key=lambda d: -buckets[d][0]["score"])
+    interleaved = []
+    while any(buckets.values()):
+        for d in domain_order:
+            if buckets[d]:
+                interleaved.append(buckets[d].popleft())
+    return interleaved
+
+
 def _dedupe_cluster_indices(clusters: list[dict]) -> list[dict]:
     """Enforce 'each pain belongs to at most one theme' regardless of what the
     model returned: drop duplicates within a cluster and across clusters
