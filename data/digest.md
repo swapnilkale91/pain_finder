@@ -1,38 +1,33 @@
-# pain_finder digest — 2026-07-15
+# pain_finder digest — 2026-07-16
 
-**5,852** items · **8,318** pains · **62** themes · lifetime LLM spend **$31.24**
+**5,887** items · **8,539** pains · **54** themes · lifetime LLM spend **$34.82**
 
 ## Top 10 themes
 
 | # | Theme | Domain | Score | Δ | Pains | Corroborated |
 |---|---|---|---|---|---|---|
-| 1 | Crypto account security breaches and fund theft | crypto exchange | 41.8 | 🆕 new | 116 | ✅ |
-| 2 | Unresponsive accounting support with no human or phone access | bookkeeping | 37.4 | 🆕 new | 222 | ✅ |
-| 3 | Crypto login and two-factor authentication failures | crypto exchange | 33.8 | 🆕 new | 91 | ✅ |
-| 4 | Crypto trading fees eroding profits | crypto exchange | 32.5 | 🆕 new | 198 | ✅ |
-| 5 | Receipt scanning and capture failures in bookkeeping apps | bookkeeping | 32.5 | 🆕 new | 77 | ✅ |
-| 6 | Crypto withdrawal blocking and trapped funds | crypto exchange | 31.9 | 🆕 new | 94 |  |
-| 7 | Crypto order execution discrepancies and slippage | crypto exchange | 31.1 | 🆕 new | 55 | ✅ |
-| 8 | Freemium paywalls blocking core bookkeeping features | bookkeeping | 30.9 | 🆕 new | 133 | ✅ |
-| 9 | Crypto deposits not credited or missing | crypto exchange | 30.8 | 🆕 new | 100 |  |
-| 10 | Unexplained crypto account freezes, bans, and lockouts | crypto exchange | 30.1 | 🆕 new | 76 |  |
-
-## Biggest movers
-
-- ▲ +4.1 **CI/CD, deployment, and infrastructure automation gaps** (devops) — now 19.3
-- ▲ +1.0 **Permitting and regulatory compliance workflow automation** (govtech) — now 14.2
+| 1 | Unresponsive/ineffective crypto exchange customer support | crypto exchange | 61.0 | 🆕 new | 957 | ✅ |
+| 2 | Crypto exchange fund loss from platform failure, fraud, or insolvency | crypto exchange | 59.5 | 🆕 new | 148 | ✅ |
+| 3 | Crypto app onboarding, signup, and login failures | crypto exchange | 44.6 | 🆕 new | 149 | ✅ |
+| 4 | Crypto wallet fund theft and security breaches | crypto exchange | 43.3 | 🆕 new | 153 | ✅ |
+| 5 | Crypto trading app crashes, freezes, and performance failures during trading | crypto exchange | 40.9 | 🆕 new | 310 | ✅ |
+| 6 | Accounting app instability, crashes, and slowness after updates | bookkeeping | 38.2 | 🆕 new | 191 | ✅ |
+| 7 | KYC/identity verification failures blocking crypto account access | crypto exchange | 35.8 | 🆕 new | 193 | ✅ |
+| 8 | Unresponsive accounting software support and gated help | bookkeeping | 34.9 | 🆕 new | 152 | ✅ |
+| 9 | Crypto trading order execution failures and unexpected liquidations | crypto exchange | 34.3 | 🆕 new | 67 | ✅ |
+| 10 | Blocked crypto withdrawals and trapped funds | crypto exchange | 34.1 | 🆕 new | 152 |  |
 
 ## New themes
 
-- **Crypto account security breaches and fund theft** (crypto exchange) — score 41.8, 116 pains
-- **Unresponsive accounting support with no human or phone access** (bookkeeping) — score 37.4, 222 pains
-- **Crypto login and two-factor authentication failures** (crypto exchange) — score 33.8, 91 pains
-- **Crypto trading fees eroding profits** (crypto exchange) — score 32.5, 198 pains
-- **Receipt scanning and capture failures in bookkeeping apps** (bookkeeping) — score 32.5, 77 pains
-- **Crypto withdrawal blocking and trapped funds** (crypto exchange) — score 31.9, 94 pains
-- **Crypto order execution discrepancies and slippage** (crypto exchange) — score 31.1, 55 pains
-- **Freemium paywalls blocking core bookkeeping features** (bookkeeping) — score 30.9, 133 pains
-- **Crypto deposits not credited or missing** (crypto exchange) — score 30.8, 100 pains
-- **Unexplained crypto account freezes, bans, and lockouts** (crypto exchange) — score 30.1, 76 pains
+- **Unresponsive/ineffective crypto exchange customer support** (crypto exchange) — score 61.0, 957 pains
+- **Crypto exchange fund loss from platform failure, fraud, or insolvency** (crypto exchange) — score 59.5, 148 pains
+- **Crypto app onboarding, signup, and login failures** (crypto exchange) — score 44.6, 149 pains
+- **Crypto wallet fund theft and security breaches** (crypto exchange) — score 43.3, 153 pains
+- **Crypto trading app crashes, freezes, and performance failures during trading** (crypto exchange) — score 40.9, 310 pains
+- **Accounting app instability, crashes, and slowness after updates** (bookkeeping) — score 38.2, 191 pains
+- **KYC/identity verification failures blocking crypto account access** (crypto exchange) — score 35.8, 193 pains
+- **Unresponsive accounting software support and gated help** (bookkeeping) — score 34.9, 152 pains
+- **Crypto trading order execution failures and unexpected liquidations** (crypto exchange) — score 34.3, 67 pains
+- **Blocked crypto withdrawals and trapped funds** (crypto exchange) — score 34.1, 152 pains
 
-*52 theme(s) from the previous run were merged or renamed by re-clustering.*
+*62 theme(s) from the previous run were merged or renamed by re-clustering.*
