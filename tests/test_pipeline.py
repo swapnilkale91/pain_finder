@@ -495,6 +495,15 @@ def test_meta_helpers(conn):
     assert dbm.get_meta(conn, "last_scored_max_pain_id") == "99"
 
 
+def test_last_run_status_roundtrip(conn):
+    import json
+    dbm.set_meta(conn, "last_run_status",
+                 json.dumps({"at": "2026-07-25T09:28:05+00:00",
+                             "failed_stages": ["extract"]}))
+    status = json.loads(dbm.get_meta(conn, "last_run_status"))
+    assert status["failed_stages"] == ["extract"]
+
+
 def test_coarse_location():
     from painfinder.geo import coarse_location
     assert coarse_location("US") == "United States"

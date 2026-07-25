@@ -80,6 +80,15 @@ m4.metric("LLM spend", f"${spend['total']['cost_usd']:,.2f}",
           help="Cumulative Claude API cost (extraction + clustering), estimated from "
                "list prices incl. batch and cache discounts")
 
+status_raw = dbm.get_meta(conn, "last_run_status")
+if status_raw:
+    _status = json.loads(status_raw)
+    if _status.get("failed_stages"):
+        st.warning(f"⚠️ The last pipeline run ({_status['at']}) had failures in: "
+                   f"**{', '.join(_status['failed_stages'])}**. Data below may be stale — "
+                   "check the GitHub Actions logs for the cause (commonly API credit/usage "
+                   "limits).")
+
 if stats["unextracted"]:
     st.caption(f"⏳ {stats['unextracted']:,} items awaiting extraction — run "
                "`python -m painfinder.cli extract --batch`")

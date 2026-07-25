@@ -296,6 +296,11 @@ def cmd_run(args):
             except Exception as e:
                 failed_stages.append("score")
                 print(f"Score failed: {e}", file=sys.stderr)
+        import json as _json
+        dbm.set_meta(conn, "last_run_status", _json.dumps({
+            "at": dbm.now_iso(),
+            "failed_stages": failed_stages,
+        }))
         try:
             from . import digest as digest_mod
             digest_path = os.path.join(os.path.dirname(args.db) or ".", "digest.md")
