@@ -1,6 +1,6 @@
-# pain_finder digest — 2026-07-27
+# pain_finder digest — 2026-07-28
 
-**6,452** items · **9,086** pains · **166** themes · lifetime LLM spend **$46.64**
+**6,474** items · **9,086** pains · **166** themes · lifetime LLM spend **$46.64**
 
 ## Top 10 themes
 
