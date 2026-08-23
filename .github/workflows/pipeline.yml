@@ -1,8 +1,6 @@
 name: pipeline
 
 on:
-  schedule:
-    - cron: "0 8 * * *"   # daily 08:00 UTC — HN thread is monthly, reviews move slowly
   workflow_dispatch:       # allow manual runs from the Actions tab
 
 permissions:
